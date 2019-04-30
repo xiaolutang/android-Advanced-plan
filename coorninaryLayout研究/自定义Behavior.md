@@ -9,7 +9,7 @@
 
 先来个效果图进行对比：功能效果比较简陋主要是为了学习自己定义behavior。
 
-![tian_mao](.\\tian_mao.gif)
+![tian_mao](\\tian_mao.gif)
 
 
 
