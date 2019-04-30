@@ -13,7 +13,7 @@
 
 
 
-![custom_tian_mao](/custom_tian_mao.gif)
+![custom_tian_mao](./custom_tian_mao.gif)
 
 具体的实现思路是：
 
