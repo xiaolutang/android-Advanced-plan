@@ -13,7 +13,7 @@
 
 
 
-![custom_tian_mao](https://github.com/xiaolutang/android-Advanced-plan/blob/master/coorninaryLayout%E7%A0%94%E7%A9%B6/custom_tian_mao.gif)
+![custom_tian_mao](/custom_tian_mao.gif)
 
 具体的实现思路是：
 
