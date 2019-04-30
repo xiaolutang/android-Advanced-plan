@@ -174,9 +174,9 @@ class HeaderDependsOnBehavior : CoordinatorLayout.Behavior<View> {
 
    这个可以使类的全路径。也可以是相对路径
 
-   ![1556602668639](C:\Users\txl\AppData\Roaming\Typora\typora-user-images\1556602668639.png)
+   ![1556602668639](./1556602668639.png)
 
-   ![1556602712225](C:\Users\txl\AppData\Roaming\Typora\typora-user-images\1556602712225.png)
+   ![1556602712225](./1556602712225.png)
 
 3. 对特定的VIew实现AttachedBehavior接口指定behavior
 
@@ -184,7 +184,7 @@ class HeaderDependsOnBehavior : CoordinatorLayout.Behavior<View> {
 
 4. 通过注解的方式在对应的view上指定：可以参考
 
-   ![1556601824583](C:\Users\txl\AppData\Roaming\Typora\typora-user-images\1556601824583.png)
+   ![1556601824583](./1556601824583.png)
 
 他们的优先级分别是 1>2>3>4 即通过setBehavior的方式设置behavior的优先级最高，通过注解的方式优先级最低。
 
