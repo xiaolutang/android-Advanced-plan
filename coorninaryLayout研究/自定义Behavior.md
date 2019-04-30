@@ -9,9 +9,9 @@
 
 先来个效果图进行对比：功能效果比较简陋主要是为了学习自己定义behavior。
 
-![tian_mao](F:\FFOutput\tian_mao.gif)
+![tian_mao](D:\txl\android-Advanced-plan\coorninaryLayout研究\tian_mao.gif)
 
-![custom_tian_mao](F:\FFOutput\custom_tian_mao.gif)
+![custom_tian_mao](D:\txl\android-Advanced-plan\coorninaryLayout研究\custom_tian_mao.gif)
 
 具体的实现思路是：
 
