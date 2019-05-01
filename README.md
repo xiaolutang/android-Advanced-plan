@@ -7,5 +7,5 @@
 |    自定义View     |       理解View的事件体系和工作原理       |  2019.04.14  |              |                                                              |
 |     屏幕适配      | 深入了解屏幕适配的原理以及各个方案的优劣 |  2019.04.14  | 2019.0414    | [Android 目前稳定高效的UI适配方案](https://mp.weixin.qq.com/s/X-aL2vb4uEhqnLzU5wjc4Q) |
 |    http/tcp/ip    |               了解http原理               |  2019.04.21  |              |                                                              |
-| CoordinatorLayout |        深入学习CoordinatorLayout         |  2019.04.21  |              |                                                              |
+| CoordinatorLayout |        深入学习CoordinatorLayout         |  2019.04.21  |              | [三板斧详解CoordinatorLayout](<https://blog.csdn.net/qq_35561554/article/details/89320881>) |
 
