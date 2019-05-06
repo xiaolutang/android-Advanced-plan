@@ -587,3 +587,142 @@ class A {
 接收器具有静态类型动态。
 
 接收器有一个定义未实现方法的静态类型（抽象是OK），接收器的动态类型有一个noSuchMethod（）实现，它与Object类中的实现不同。(不是太懂)
+
+## 枚举类型
+
+枚举类型（通常称为枚举或枚举）是一种特殊类，用于表示固定数量的常量值
+
+### 使用枚举类型
+
+使用 `enum` 关键字来定义枚举类型：
+
+```dart
+enum Color { red, green, blue }
+```
+
+枚举中的每个值都有一个索引getter，它返回枚举声明中值的从零开始的位置。 例如，第一个值具有索引0，第二个值具有索引1。
+
+```dart
+assert(Color.red.index == 0);
+assert(Color.green.index == 1);
+assert(Color.blue.index == 2);
+```
+
+枚举的 `values` 常量可以返回 所有的枚举值。
+
+```dart
+List<Color> colors = Color.values;
+assert(colors[2] == Color.blue);
+```
+
+可以在 switch 语句 中使用枚举。 如果在 switch (e) 中的 e 的类型为枚举类， 如果你没有处理所有该枚举类型的值的话，则会抛出一个警告：
+
+```dart
+var aColor = Color.blue;
+
+switch (aColor) {
+  case Color.red:
+    print('Red as roses!');
+    break;
+  case Color.green:
+    print('Green as grass!');
+    break;
+  default: // Without this, you see a WARNING.
+    print(aColor); // 'Color.blue'
+}
+```
+
+枚举类型具有如下的限制：
+
+- 无法继承枚举类型、无法使用 mix in、无法实现一个枚举类型
+- 无法显示的初始化一个枚举类型
+
+## 向类添加功能：mixins
+
+Mixins 是一种在多类继承中重用 一个类代码的方法。
+
+使用 `with` 关键字后面为一个或者多个 mixin 名字来使用 mixin。 下面是示例显示了如何使用 mixin
+
+```dart
+class Musician extends Performer with Musical {
+  // ···
+}
+
+class Maestro extends Person
+    with Musical, Aggressive, Demented {
+  Maestro(String maestroName) {
+    name = maestroName;
+    canConduct = true;
+  }
+}
+```
+
+要实现mixin，请创建一个扩展Object的类，并且不声明构造函数。 除非您希望mixin可用作常规类，否则请使用mixin关键字而不是class。 例如
+
+```dart
+abstract class Musical {
+  bool canPlayPiano = false;
+  bool canCompose = false;
+  bool canConduct = false;
+
+  void entertainMe() {
+    if (canPlayPiano) {
+      print('Playing piano');
+    } else if (canConduct) {
+      print('Waving hands');
+    } else {
+      print('Humming to self');
+    }
+  }
+}
+```
+
+## 类变量和函数
+
+使用 `static` 关键字来实现类级别的变量和函数
+
+### 静态变量
+
+```dart
+class Color {
+  static const red =
+      const Color('red'); // A constant static variable.
+  final String name;      // An instance variable.
+  const Color(this.name); // A constant constructor.
+}
+
+main() {
+  assert(Color.red.name == 'red');
+}
+```
+
+静态变量在第一次使用的时候才被初始化
+
+### Static methods（静态函数）
+
+静态函数不再类实例上执行， 所以无法访问 `this`。例如：
+
+```dart
+import 'dart:math';
+
+class Point {
+  num x;
+  num y;
+  Point(this.x, this.y);
+
+  static num distanceBetween(Point a, Point b) {
+    var dx = a.x - b.x;
+    var dy = a.y - b.y;
+    return sqrt(dx * dx + dy * dy);
+  }
+}
+
+main() {
+  var a = new Point(2, 2);
+  var b = new Point(4, 4);
+  var distance = Point.distanceBetween(a, b);
+  assert(distance < 2.9 && distance > 2.8);
+}
+```
+
+**注意：** 对于通用的或者经常使用的静态函数，考虑 使用顶级方法而不是静态函数。
