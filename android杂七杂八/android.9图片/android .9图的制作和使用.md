@@ -65,7 +65,7 @@
 
    可以注意到这个时候我们缩放的区域是左边线和右边线相交的区域，并且在右侧还可以预览缩放后的效果：最终图片的缩放效果如下所示：
 
-   ![scale](.\scale.png)
+   ![scale](./scale.png)
 
    可以看到图片的是按照正常范围缩放，但是背景图和文本的内容在一起了。
 
@@ -74,11 +74,11 @@
    同样的修改下面和右边的边线如下,设置内容区域：
 
 
-![final_9_picture](.\final_9_picture.png)
+![final_9_picture](./final_9_picture.png)
 
 最后的效果如下：
 
-![final_content](.\final_content.png)
+![final_content](./final_content.png)
 
 这样我们就完成一个.9的图片制作和使用啦。
 
