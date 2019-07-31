@@ -168,7 +168,62 @@ onInterceptTouchEvent() 事件拦截。注意这个只有ViewGroup有这个方�
 
 onTouchEvent() 事件处理。
 
-当事件传递到ViewGroup的disoatchTouchEvent时候,它会先判断自身是否需要拦截处理
+当事件传递到ViewGroup的disoatchTouchEvent时候,它会先判断自身是否需要拦截处理，如果需要进行拦截处理就自己处理，如果不拦截则交给它的子View（包含ViewGroup和View）处理，如果它的子View不处理，则它自身的onTouchEvent会被调用。
+
+![View的事件分发机制](./View的事件分发机制.png)
+
+如上所示View的事件处理流程大概就是这样。
+
+### 从源码中理解事件分发机制
+
+ViewGroup 部分dispatchTouchEvent()代码
+
+```java
+// Check for interception.
+final boolean intercepted;
+if (actionMasked == MotionEvent.ACTION_DOWN || mFirstTouchTarget != null) {
+    final boolean disallowIntercept = (mGroupFlags & FLAG_DISALLOW_INTERCEPT) != 0;
+          if (!disallowIntercept) {
+             intercepted = onInterceptTouchEvent(ev);
+             ev.setAction(action); // restore action in case it was changed
+           } else {
+             intercepted = false;
+           }
+} else {
+     // There are no touch targets and this action is not an initial down
+     // so this view group continues to intercept touches.
+     intercepted = true;
+}
+```
+
+从这里我们可以看出ViewGroup在两种情况下会判断是否需要拦截当前事件，事件类型为ACTION_DOWN或mFirstTouchTarget不为空。ACTION_DOWN是指手指按下屏幕的那一瞬间，点击事件的开始。当ViewGroup的子元素处理成功时mFirstTouchTarget会被赋值并指向子元素。一旦ViewGroup拦截本次事件，mFirstTouchTarget会被置空，当ACTION_MOVE和ACTION_UP到来的时候。就不会再对是否拦截进行判断，并且同一系列事件的其他事件都会交给它处理。
+
+从代码中我们也可以看到ViewGroup对事件的拦截还受mGroupFlags影响。如果mGroupFlags包含FLAG_DISALLOW_INTERCEPT那么ViewGroup不会对本次事件进行拦截。需要注意的是在ACTION_DOWN来临的时候ViewGroup会调用resetTouchState() 重置这个标志。
+
+```java
+private void resetTouchState() {
+        clearTouchTargets();
+        resetCancelNextUpFlag(this);
+        mGroupFlags &= ~FLAG_DISALLOW_INTERCEPT;
+        mNestedScrollAxes = SCROLL_AXIS_NONE;
+    }
+```
+
+即一旦这个标志位被设置那么ViewGroup将无法拦截ACTION_DOWN以外的事件。
+
+当ViewGroup不拦截事件的时候，事件会向下分发交给它的子View进行处理。在进行分发的过程中会调用到dispatchTransformedTouchEvent（）来进行处理。
+
+```java
+/**
+     * Transforms a motion event into the coordinate space of a particular child view,
+     * filters out irrelevant pointer ids, and overrides its action if necessary.
+     * If child is null, assumes the MotionEvent will be sent to this ViewGroup instead.
+     */
+    private boolean dispatchTransformedTouchEvent(MotionEvent event, boolean cancel,
+            View child, int desiredPointerIdBits) 
+```
+
+这里没有将代码全部贴出来，但是从方法的注释中我们可以简单的理解为，当参数child为空
 
 # View的滑动冲突
 
