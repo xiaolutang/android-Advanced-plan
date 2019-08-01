@@ -223,9 +223,162 @@ private void resetTouchState() {
             View child, int desiredPointerIdBits) 
 ```
 
-这里没有将代码全部贴出来，但是从方法的注释中我们可以简单的理解为，当参数child为空
+这里没有将代码全部贴出来，但是从方法的注释中我们可以简单的理解为：当参数child为空那么会调用ViewGroup的super.dispatchTouchEvent()即自己处理本次事件，否则调用child.dispatchTouchEvent()将事件传递给子View进行分发处理。如果ViewGroup拦截本次事件或者没有找到合适的子View处理本次事件，mFirstTouchTarget就会为 null，在本次事件序列不会再调用onInterceptTouchEvent（）方法。
+
+View对事件的处理：
+
+View的dispatchTouchEvent()部分代码
+
+```
+ListenerInfo li = mListenerInfo;
+if (li != null && li.mOnTouchListener != null
+       && (mViewFlags & ENABLED_MASK) == ENABLED
+       && li.mOnTouchListener.onTouch(this, event)) {
+           result = true;
+}
+
+ if (!result && onTouchEvent(event)) {
+        result = true;
+}
+```
+
+从这个代码中我们可以看出，OnTouchListener 优先于onTouchEvent(),如果设置了 OnTouchListener 并且返回true那么OnTouchEvent（）方法不会被调用。
 
 # View的滑动冲突
 
+常见的滑动冲突主要分成三种场景：
+
+![滑动冲突场景](./滑动冲突场景.png)
+
+对于滑动冲突的处理规则：
+
+对于场景1：我们可以根据滑动方向决定哪个View处理本次事件交给哪个View处理
+
+对于场景2：我们可以根据自身的业务逻辑来决定哪个View进行滑动
+
+对于场景3：其本质是场景1和场景2的嵌套，我们只需要分别对他们进行处理即可。
+
+### 简单理解ViewPager对于滑动冲突的处理
+
+我们在ViewPager中放置一个RecyclerView 不论它是水平还是竖直滚动，ViewPager总是先将滑动事件交给它的子View进行处理，在子View滑动玩成后再滑动自身。这到底是为什么呢？
+
+ViewPager没有重写了onInterceptTouchEvent（）和onTouchEvent（）由前面的View的事件分发机制我们知道，一旦ViewGroup的onTouchEcent()被调用就意味着它自己处理这一系列事件，即mFirstTouchTarget != null为false。子View不会再接收到这一系列事件。即ViewPager对于事件的处理在onInterceptTouchEvent()中。
+
+ViewPager对于滑动事件的拦截处理部分关键代码
+
+```java
+if (dx != 0 && !isGutterDrag(mLastMotionX, dx)
+                        && canScroll(this, false, (int) dx, (int) x, (int) y)) {
+                    // Nested view has scrollable area under this point. Let it be handled there.
+                    mLastMotionX = x;
+                    mLastMotionY = y;
+                    mIsUnableToDrag = true;
+                    return false;
+                }
+                if (xDiff > mTouchSlop && xDiff * 0.5f > yDiff) {
+                    if (DEBUG) Log.v(TAG, "Starting drag!");
+                    mIsBeingDragged = true;
+                    requestParentDisallowInterceptTouchEvent(true);
+                    setScrollState(SCROLL_STATE_DRAGGING);
+                    mLastMotionX = dx > 0
+                            ? mInitialMotionX + mTouchSlop : mInitialMotionX - mTouchSlop;
+                    mLastMotionY = y;
+                    setScrollingCacheEnabled(true);
+                } else if (yDiff > mTouchSlop) {
+                    // The finger has moved enough in the vertical
+                    // direction to be counted as a drag...  abort
+                    // any attempt to drag horizontally, to work correctly
+                    // with children that have scrolling containers.
+                    if (DEBUG) Log.v(TAG, "Starting unable to drag!");
+                    mIsUnableToDrag = true;
+                }
+```
+
+总结有两个个点：
+
+1. 调用canScroll（）判断子ViewGroup是否可以进行水平滑动，如果可以的话，交给子ViewGroup处理。
+2. 判断滑动的方向，如果Y方向的滑动距离大于X方向上的滑动距离。则不进行拦截，反之进行拦截。
+
+这就是为什么ViewPager在水平方向上子ViewGroup总是优先于ViewPager进行滑动。竖直方向上ViewPager直接将滑动事件交给子ViewGroup处理。
+
+对于第二条我们都很好理解，但是对于第一条这个是怎么做到的呢？我们直接来看看canScroll（）源码。
+
+```java
+/**
+     * Tests scrollability within child views of v given a delta of dx.
+     *
+     * @param v View to test for horizontal scrollability
+     * @param checkV Whether the view v passed should itself be checked for scrollability (true),
+     *               or just its children (false).
+     * @param dx Delta scrolled in pixels
+     * @param x X coordinate of the active touch point
+     * @param y Y coordinate of the active touch point
+     * @return true if child views of v can be scrolled by delta of dx.
+     */
+    protected boolean canScroll(View v, boolean checkV, int dx, int x, int y) {
+        if (v instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) v;
+            final int scrollX = v.getScrollX();
+            final int scrollY = v.getScrollY();
+            final int count = group.getChildCount();
+            // Count backwards - let topmost views consume scroll distance first.
+            for (int i = count - 1; i >= 0; i--) {
+                // TODO: Add versioned support here for transformed views.
+                // This will not work for transformed views in Honeycomb+
+                final View child = group.getChildAt(i);
+                if (x + scrollX >= child.getLeft() && x + scrollX < child.getRight()
+                        && y + scrollY >= child.getTop() && y + scrollY < child.getBottom()
+                        && canScroll(child, true, dx, x + scrollX - child.getLeft(),
+                                y + scrollY - child.getTop())) {
+                    return true;
+                }
+            }
+        }
+
+        return checkV && v.canScrollHorizontally(-dx);
+    }
+```
+
+可以看到它会循环查看ViewPager中的所有子ViewGroup及其子ViewGroup下面的所有ViewGroup是否能够处理这次水平滑动。这个东西理解起来有点绕。简单的来说就是对于一个ViewGroup而言只要它的向上递归查找父容器能够找到ViewPager,那么它的水平滑动就会优先于ViewPager处理。如下图RecyclerView可以理解成能够水平滑动的ViewGroup
+
+![ViewPager对滑动事件的处理](./ViewPager对滑动事件的处理.png)
+
+滑动冲突的处理：
+
+1. 外部拦截法：指的是点击事件都经过父容器进行处理，如果父容器需要就进行拦截处理，不需要就交给子View处理。像上面ViewPager的处理方式我们称之为外部拦截法。
+2. 内部拦截法：父容器默认不拦截任何事件，如果子元素需要就处理掉，不需要就交给父容器进行处理。这个和android的事件处理机制不一致需要配requestParentDisallowInterceptTouchEvent来进行处理。
+
+题外话：虽然作者把滑动冲突的处理分成了两种方法，但是个人认为这两个方法不应该分开来看。他们的配合使用能够达到比较好的滑动冲突处理效果。requestParentDisallowInterceptTouchEvent（）方法的含义是让父容器不拦截本次事件。细心的同学可能注意到了viewPager在拦截处理滑动事件时就调用了这个方法，让父容器不在拦截这一系列事件。
+
+```
+if (xDiff > mTouchSlop && xDiff * 0.5f > yDiff) {
+                    if (DEBUG) Log.v(TAG, "Starting drag!");
+                    mIsBeingDragged = true;
+                    requestParentDisallowInterceptTouchEvent(true);
+                    setScrollState(SCROLL_STATE_DRAGGING);
+                    mLastMotionX = dx > 0
+                            ? mInitialMotionX + mTouchSlop : mInitialMotionX - mTouchSlop;
+                    mLastMotionY = y;
+                    setScrollingCacheEnabled(true);
+                }
+```
+
+**所以我个人的结论是：**对于滑动冲突的处理，直接使用符合View的事件分发机制的外部拦截法。辅助内部拦截法实现特殊的需求。想ViewPager中调用这个方法的目的的是在ViewPager一旦进行页面切换它就需要完全处理这次事件，而不是在切换的过程中有可能中断被父容器进行处理。
+
 # 嵌套滑动的实现
 
+关于嵌套滑动的理解：
+
+[https://blog.csdn.net/qq_35561554/article/details/89320881三板斧详解CoordinatorLayo]: 
+
+嵌套滑动&CoordinatorLayout参考过的博客：
+
+https://www.jianshu.com/p/b987fad8fcb4
+
+https://www.jianshu.com/p/f7989a2a3ec2
+
+https://www.jianshu.com/p/7830b05b38bb
+
+https://www.jianshu.com/p/5e6f2ae1d2ec
+
+还有其他一些大佬的文章在写这个篇文章的时候找不到了，十分抱歉。
