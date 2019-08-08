@@ -182,7 +182,11 @@ ViewRootImpl的Die提供同步删除和异步删除，最终他们都会调用�
 
 ### Window的更新过程
 
+Window的更新只需要调用WindowManagerGlobal的updateViewLayout方法改变View的LayoutParams即可。
+
 ## Window的创建过程
+
+
 
 ## PopWinodw的本质
 
