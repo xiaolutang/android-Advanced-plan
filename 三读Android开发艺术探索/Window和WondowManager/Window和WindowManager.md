@@ -186,9 +186,84 @@ Window的更新只需要调用WindowManagerGlobal的updateViewLayout方法改变
 
 ## Window的创建过程
 
+关于Window的创建过程。我这里不打算做笔记。有兴趣可以直接在网上搜索一下。
 
+## PopupWinodw的本质
 
-## PopWinodw的本质
+一般而言我们展示一个一个PopupWindow是通过showAtLocation(View parent, int gravity, int x, int y)方法来实现的。而这个方法又调用了showAtLocation(IBinder token, int gravity, int x, int y)；该方法的实现如下：
 
+```java
+public void showAtLocation(IBinder token, int gravity, int x, int y) {
+        if (isShowing() || mContentView == null) {
+            return;
+        }
 
+        TransitionManager.endTransitions(mDecorView);
 
+        detachFromAnchor();
+
+        mIsShowing = true;
+        mIsDropdown = false;
+        mGravity = gravity;
+
+        final WindowManager.LayoutParams p = createPopupLayoutParams(token);
+        preparePopup(p);
+
+        p.x = x;
+        p.y = y;
+
+        invokePopup(p);
+    }
+
+```
+
+可以看到createPopupLayoutParams（）方法准备了PopupWindow的LayoutParams
+
+```java
+protected final WindowManager.LayoutParams createPopupLayoutParams(IBinder token) {
+        final WindowManager.LayoutParams p = new WindowManager.LayoutParams();
+
+        // These gravity settings put the view at the top left corner of the
+        // screen. The view is then positioned to the appropriate location by
+        // setting the x and y offsets to match the anchor's bottom-left
+        // corner.
+        p.gravity = computeGravity();
+        p.flags = computeFlags(p.flags);
+        p.type = mWindowLayoutType;
+        p.token = token;
+        p.softInputMode = mSoftInputMode;
+        p.windowAnimations = computeAnimationResource();
+
+        if (mBackground != null) {
+            p.format = mBackground.getOpacity();
+        } else {
+            p.format = PixelFormat.TRANSLUCENT;
+        }
+
+        if (mHeightMode < 0) {
+            p.height = mLastHeight = mHeightMode;
+        } else {
+            p.height = mLastHeight = mHeight;
+        }
+
+        if (mWidthMode < 0) {
+            p.width = mLastWidth = mWidthMode;
+        } else {
+            p.width = mLastWidth = mWidth;
+        }
+
+        p.privateFlags = PRIVATE_FLAG_WILL_NOT_REPLACE_ON_RELAUNCH
+                | PRIVATE_FLAG_LAYOUT_CHILD_WINDOW_IN_PARENT_FRAME;
+
+        // Used for debugging.
+        p.setTitle("PopupWindow:" + Integer.toHexString(hashCode()));
+
+        return p;
+    }
+```
+
+注意其中的 p.type = mWindowLayoutType;  mWindowLayoutType 在默认情况下是WindowManager.LayoutParams.TYPE_APPLICATION_PANEL 即1000 现在我们可以明白了popupWindow默认情况下是一个子Window。
+
+看到这里不禁要问既然是子Window那么它的父Window是如何设置的呢？
+
+其实设置子Window的父Window是在WindowManager中根据WIndowManager.LayoutParams的TOKE进行处理的。而不是WindowManagerImpl中的mParentWindow来进行处理。
