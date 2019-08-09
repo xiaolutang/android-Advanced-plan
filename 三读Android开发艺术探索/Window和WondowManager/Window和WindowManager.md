@@ -264,6 +264,115 @@ protected final WindowManager.LayoutParams createPopupLayoutParams(IBinder token
 
 注意其中的 p.type = mWindowLayoutType;  mWindowLayoutType 在默认情况下是WindowManager.LayoutParams.TYPE_APPLICATION_PANEL 即1000 现在我们可以明白了popupWindow默认情况下是一个子Window。
 
-看到这里不禁要问既然是子Window那么它的父Window是如何设置的呢？
+## 子Window的父Window由来
 
-其实设置子Window的父Window是在WindowManager中根据WIndowManager.LayoutParams的TOKE进行处理的。而不是WindowManagerImpl中的mParentWindow来进行处理。
+前面我们知道子Windows是依附父Window而出现。那么WindowManagerImpl中mParentWindow是如何设置的呢？
+
+以Activity和Dialog为例
+
+想要了解父Window的由来我们需要了解下面的几个知识：
+
+1. Android为每个Context对象保留一个自有的WindowManagerImpl对象。
+2. 通过Activity获取到的WindowManager是以Activity的Window为父Window的WindowManager。
+
+我们先看看第一个：
+
+我们知道Context的具体操作实现是ContextImpl，我们来看看它的getSysytemService方法
+
+```java
+@Override
+    public Object getSystemService(String name) {
+        return SystemServiceRegistry.getSystemService(this, name);
+    }
+```
+
+SystemServiceRegistry的getSystemService（）方法：
+
+```java
+ /**
+     * Gets a system service from a given context.
+     */
+    public static Object getSystemService(ContextImpl ctx, String name) {
+        ServiceFetcher<?> fetcher = SYSTEM_SERVICE_FETCHERS.get(name);
+        return fetcher != null ? fetcher.getService(ctx) : null;
+    }
+```
+
+SYSTEM_SERVICE_FETCHERS是一个以服务名为key,ServiceFetcher为Value的HashMap。ServiceFetcher在存储的时候的实现类是：CachedServiceFetcher,其代码如下：
+
+```java
+/**
+     * Override this class when the system service constructor needs a
+     * ContextImpl and should be cached and retained by that context.
+     */
+    static abstract class CachedServiceFetcher<T> implements ServiceFetcher<T> {
+        private final int mCacheIndex;
+
+        public CachedServiceFetcher() {
+            mCacheIndex = sServiceCacheSize++;
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public final T getService(ContextImpl ctx) {
+            final Object[] cache = ctx.mServiceCache;
+            synchronized (cache) {
+                // Fetch or create the service.
+                Object service = cache[mCacheIndex];
+                if (service == null) {
+                    try {
+                        service = createService(ctx);
+                        cache[mCacheIndex] = service;
+                    } catch (ServiceNotFoundException e) {
+                        onServiceNotFound(e);
+                    }
+                }
+                return (T)service;
+            }
+        }
+
+        public abstract T createService(ContextImpl ctx) throws ServiceNotFoundException;
+```
+
+我们再来看看WindowManager是如何注册的：
+
+```java
+  registerService(Context.WINDOW_SERVICE, WindowManager.class,
+                new CachedServiceFetcher<WindowManager>() {
+            @Override
+            public WindowManager createService(ContextImpl ctx) {
+                return new WindowManagerImpl(ctx);
+            }});
+```
+
+这样我们就可以明白了，每一个context对象都有自己的WindowManagerImpl，而不是全局共用一个。
+
+
+
+Activity重写了getSystemService方法，其实现如下：
+
+```java
+@Override
+    public Object getSystemService(@ServiceName @NonNull String name) {
+        if (getBaseContext() == null) {
+            throw new IllegalStateException(
+                    "System services not available to Activities before onCreate()");
+        }
+
+        if (WINDOW_SERVICE.equals(name)) {
+            return mWindowManager;
+        } else if (SEARCH_SERVICE.equals(name)) {
+            ensureSearchManager();
+            return mSearchManager;
+        }
+        return super.getSystemService(name);
+    }
+```
+
+可以看到它返回的是Activity的mWindowManager，而activity的mWindowManager在activity的attach方法中被赋值。
+
+```java
+mWindowManager = mWindow.getWindowManager();
+```
+
+因此通过Activity获取的WindowManagerImpl都是有父Window的。
