@@ -1,3 +1,11 @@
+
+
+技术参考：
+
+https://juejin.im/post/5b5f17976fb9a04fa775658d#heading-1
+
+https://juejin.im/post/5bb9c0d55188255c7566e1e2#heading-6
+
 # app工厂现存问题。
 
 1. 项目编译时间长
