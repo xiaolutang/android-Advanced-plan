@@ -47,7 +47,7 @@ AppJoint框架优势：
 
 ## 1.新建leakcanary和router模块
 
-![img](\新建router和leakcanary模块.png)
+![img](新建router和leakcanary模块.png)
 
 leakcanary：是一个单独的组件，它不依赖其他模块 
 
@@ -86,7 +86,7 @@ class LeakCanaryRouterImpl:ILeakCanaryRouter {
 
 新建standleakcanary模块
 
-![img](\stand_leakcanary.png)
+![img](stand_leakcanary.png)
 
 
 
