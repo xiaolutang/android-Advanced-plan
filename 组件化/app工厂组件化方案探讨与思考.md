@@ -105,3 +105,7 @@ appRouter.watch(lastFragment!!,"fragment test collect")
 组件化模块具有单独编译的能力 ，方便我们 进行单独的测验。
 
 代码复用性强，方便多个项目共用
+
+组件化后的架构图：
+
+![image-20200323155018512](组件化架构图.png)
