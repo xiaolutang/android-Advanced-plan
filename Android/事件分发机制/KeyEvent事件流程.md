@@ -260,6 +260,8 @@ FocusFinder的焦点查找过程：
 
 参考： WandroidTv版的  DynamicLinearLayout类关于焦点记忆的实现
 
+https://github.com/xiaolutang/WanAndroidTv/blob/master/tvlib/src/main/java/com/txl/tvlib/widget/dynamic/focus/DynamicLinearLayout.java
+
 # 左右按键试下焦点向上向下
 
 这个问题是一个焦点内部搜索问题，
@@ -267,6 +269,8 @@ FocusFinder的焦点查找过程：
 我们可以通过自己处理dispatchKeyEvent或者focusSearch方法来进行处理。小王考虑到如果在dispatchKeyEvent中进行处理会打破原来的KeyEvent传递流程。因此小王通过focusSearch来处理。
 
 参考  WanAndroidTv版  DynamicFlexboxLayout 和 LibTvRecyclerView
+
+https://github.com/xiaolutang/WanAndroidTv/blob/master/wanandroid/src/main/java/com/txl/wanandroidtv/ui/widget/DynamicFlexboxLayout.java
 
 
 
@@ -328,3 +332,25 @@ public class NavViewPager extends ViewPager {
 }
 ```
 
+
+
+这样终于学习完了android的KeyEvent事件流程。小王不用在为项目的焦点问题而担心了。
+
+最后在补充文章开始的结论：
+
+![image-20200402170722546](KeyEvent事件分发流程.png)
+
+1. KeyEvent事件分为前后两个阶段，以当前焦点View接收到dispatchKeyEvent为分界点，前半部分为KeyEvent事件处理，后半部分为焦点查找。
+2. KeyEvent事件默认会交给当前拥有焦点的View进行处理。ViewGroup只是起到一个事件传递的作用。
+3. 只有直接或间接包含当前焦点View的ViewGroup才有机会调用到dispatchKeyEvent和focusSearch方法
+4. 只有直接或间接包含当前焦点View的ViewGroup，设置的OnKeyListener才可能有效果。
+5. 我们可以重写ViewGroup的dispatchKeyEvent方法来实现自己的KeyEvent事件拦截处理。
+6. 对于跨ViewGroup的焦点查找我们可以在addFocusable中进行处理，对于ViewGroup的内部焦点查找，在不打破原有的事件处理归则的情况下优先考虑重写focusSearch,其次才是dispatchKeyEvent。
+
+
+
+
+
+输出是检验学习成果的最好的方式。
+
+这是我第一次用这样的方式，来写技术文章。你的转发是对我最大的鼓励
