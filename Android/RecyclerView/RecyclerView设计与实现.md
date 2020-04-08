@@ -27,11 +27,18 @@ RecyclerView是我们日常开发中非常重要的一个控件，小王所开�
 
 我们知道，一个View的显示会经过三大流程：测量，摆放，绘制。而要提供灵活的布局我们可以通过策略模式针对不同的策略使用不同的布局方式。于是设计了LayoutManager，来负责子View的摆放
 
-为了能够显示大量的ui我们需要对不在屏幕内的View进行回收，这样才不会因为加载的子View过多而导致oom。
+为了能够显示大量的ui我们需要对不在屏幕内的View进行回收，这样才不会因为加载的子View过多而导致oom。使用Recycler来进行View的回收
 
 因为这个RecyclerView是提供给别的开发者使用的，小王并不知道XwRecyclerViewd的子View会摆放那些。于是通过一个IViewProvider来为XwRecyclerView提供需要摆放的子View
 
 这样XwRecyclerView的1.0版本的整体结构如下
 
-![1586273418874](自己设计实现RecyclerView1.0.png)
+![image-20200408180814586](RecyclerView设计1.0.png)
 
+
+
+## 2.0版本
+
+在上面的设计中明显存在有个问题，每次获取View都是重新创建，每次销毁的View都不在使用，等待GC来进行垃圾回收，明显是不合理的。那么该如何实现缓存呢？
+
+很明显我们不能直接对View进行缓存，因为不知道每个位置需要显示什么样式。于是增加了一个ViewHolder作为缓存对象，既然使用ViewHolde作为缓存，那么IViewProvide所提供的View如何转换成ViewHolder呢？很常见的我们想到了适配器模式，可以通过Adapter将其转换成合适的ViewHolder。
