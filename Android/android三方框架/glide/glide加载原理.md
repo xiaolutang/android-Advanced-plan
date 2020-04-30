@@ -844,11 +844,7 @@ public class DrawableImageViewTarget extends ImageViewTarget<Drawable> {
 
 
 
-# 问题
+Glide时序图：
 
-虽然我们对glide的加载流程进行了一个简单的分析但是依然还有许多疑问，下面例举了几个常见的问题。我会在下一篇文章中详细解答
-
-1. glide的RequestManager是如何进行声明周期绑定的？
-2. glide的缓存是如何实现的？
-3. glide如何进行图片的变换？
+![1588255637674](D:\android-Advanced-plan\Android\android三方框架\glide\Glide时序图.png)
 
