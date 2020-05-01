@@ -100,3 +100,54 @@ DiskCacheStrategy.NONE： 表示不缓存任何内容。
 DiskCacheStrategy.DATA： 表示只缓存原始图片。
 DiskCacheStrategy.RESOURCE： 表示只缓存转换过后的图片。
 DiskCacheStrategy.ALL ： 表示既缓存原始图片，也缓存转换过后的图片。AUTOMATICDiskCacheStrategy.AUTOMATIC： Glide自动选择缓存策略（默认选项）。
+
+当图片在内存缓存中加载失败之后就会在文件缓存中进行查找。这一部分加载主要在DecodeJob进行。DecodeJob实现了Runnable。仔细分析后我发现这个类是一个很有意思的。这里为了了解整个加载的全过程。我们设置缓存策略为DiskCacheStrategy.ALL
+
+这里在回顾下DiskCacheStrategy 它有4个方法
+
+```
+public abstract class DiskCacheStrategy {
+
+  
+
+ //是否允许缓存原始图片
+  public abstract boolean isDataCacheable(DataSource dataSource);
+
+ //是否允许缓存指定大小的图片
+  public abstract boolean isResourceCacheable(boolean isFromAlternateCacheKey,
+      DataSource dataSource, EncodeStrategy encodeStrategy);
+
+  //是否读取指定大小的图片
+  public abstract boolean decodeCachedResource();
+
+  //是否读取原始图片
+  public abstract boolean decodeCachedData();
+}
+
+```
+
+## DecodeJob的工作过程
+
+DecodeJob的实现了Runnable接口它的工作开始于run方法。而run方法的核心调用逻辑在runWrapped中实现
+
+```java
+private void runWrapped() {
+    switch (runReason) {
+      case INITIALIZE:
+        stage = getNextStage(Stage.INITIALIZE);
+        currentGenerator = getNextGenerator();
+        runGenerators();
+        break;
+      case SWITCH_TO_SOURCE_SERVICE:
+        runGenerators();
+        break;
+      case DECODE_DATA:
+        decodeFromRetrievedData();
+        break;
+      default:
+        throw new IllegalStateException("Unrecognized run reason: " + runReason);
+    }
+  }
+```
+
+在最初的时候runReason为INITIALIZE
