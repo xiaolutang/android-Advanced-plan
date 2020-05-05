@@ -1,3 +1,5 @@
+# 常见的使用Okhttp替换HttpUrlConnection
+
 我们知道Glide底层网络加载是用HttpUrlConnect实现的。如果我们要用okhttp替换原来的网络加载方式，只需要实现下面的代码。并在Manifest中进行注册说明即可。那么它的底层实现原理是怎么样的呢？
 
 ```java
@@ -74,6 +76,7 @@ public class HttpGlideModule extends OkHttpGlideModule {
     if (annotationGeneratedModule != null) {
       annotationGeneratedModule.applyOptions(applicationContext, builder);
     }
+     //创建Glide对象
     Glide glide = builder.build(applicationContext);
     for (com.bumptech.glide.module.GlideModule module : manifestModules) {//注册Manifest中声明的组件
       module.registerComponents(applicationContext, glide, glide.registry);
@@ -87,7 +90,11 @@ public class HttpGlideModule extends OkHttpGlideModule {
 
 ```
 
-这个逻辑还是比较简单，继承OkHttpGlideModule重写registerComponents方法。然后调用replace替换掉原来的组件即可。
+在构建Glide对象的时候框架将已经写好的modelLoader组件注册进Glide对象，后续需要更改或者添加可以通过
+
+Registry提供了三种类型的方法，在最前面添加prepend，在最后面添加append，替换replace。来进行相应的处理。
+
+使用Okhttp替换原来的HttpUrlConnection这个逻辑还是比较简单，继承OkHttpGlideModule重写registerComponents方法。然后调用replace替换掉原来的组件。
 
 # ModelLoader的组合流转
 
@@ -112,3 +119,31 @@ public class HttpGlideModule extends OkHttpGlideModule {
 ```
 
 代码执行的关键是helper.getLoadData()返回一些列适合处理当前Model的LoadData。
+
+DecodeHelper#getLoadData
+
+```java
+  List<LoadData<?>> getLoadData() {
+    if (!isLoadDataSet) {
+      isLoadDataSet = true;
+      loadData.clear();
+      List<ModelLoader<Object, ?>> modelLoaders = glideContext.getRegistry().getModelLoaders(model);
+      //noinspection ForLoopReplaceableByForEach to improve perf
+      for (int i = 0, size = modelLoaders.size(); i < size; i++) {
+        ModelLoader<Object, ?> modelLoader = modelLoaders.get(i);
+        LoadData<?> current =
+            modelLoader.buildLoadData(model, width, height, options);
+        if (current != null) {
+          loadData.add(current);
+        }
+      }
+    }
+    return loadData;
+  }
+```
+
+需要注意的是这里的model是我们在加载图片时通过load方法传递进来的。传递进来是什么类型这里就是什么。这里以String为例进行说明。
+
+在Glide类初始化的时候注册了4个ModelLoader为String的对象，
+
+![1588659413426](Glide初始化String组件.png)
