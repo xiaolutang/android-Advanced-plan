@@ -1,3 +1,7 @@
+
+
+
+
 在上一篇学习笔记
 
 [Glide加载流程分析]: https://juejin.im/post/5eaad7e1f265da7bd802a819
@@ -6,11 +10,21 @@
 
 Glide的缓存可以说考虑的非常全面分为下面的几个方面
 
-- 内存缓存
-  - 活动资源
-  - Lru内存缓存
-- 磁盘缓存
-- 网络
+内存加载
+
+- 活动资源加载。如果加载成功，那么引用计数加一
+- LRU内存缓存加载。如果加载成功，那么从LRU缓存中移除，并且将对应的数据放入到活动资源。
+
+文件加载（如果前面两个流程执行成功就不会执行后面的）
+
+- 从文件活动资源中加载
+- 从文件中加载
+- 从网络中加载
+- 缓存 到文件中
+- 缓存到文件活动资源
+- 将数据放在活动资源中
+
+文章主要致力于Glide四级缓存的加载过程的梳理，而不会过渡执着于详细的加载过程。
 
 # Glide缓存Key
 
@@ -130,18 +144,20 @@ public abstract class DiskCacheStrategy {
 
 DecodeJob的实现了Runnable接口它的工作开始于run方法。而run方法的核心调用逻辑在runWrapped中实现
 
+在DecodeJob创建的时候stage初始状态DecodeJob#Stage#INITIALIZE。在runWrapped中获取getNextStage返回的state为DecodeJob#Stage#RESOURCE_CACHE。getNextGenerator返回的是ResourceCacheGenerator。
+
 ```java
 private void runWrapped() {
     switch (runReason) {
-      case INITIALIZE:
+      case INITIALIZE://从缓存中加载
         stage = getNextStage(Stage.INITIALIZE);
         currentGenerator = getNextGenerator();
         runGenerators();
         break;
-      case SWITCH_TO_SOURCE_SERVICE:
+      case SWITCH_TO_SOURCE_SERVICE://加载网络数据，并缓存
         runGenerators();
         break;
-      case DECODE_DATA:
+      case DECODE_DATA://从文件中加载数据
         decodeFromRetrievedData();
         break;
       default:
@@ -150,4 +166,170 @@ private void runWrapped() {
   }
 ```
 
-在最初的时候runReason为INITIALIZE
+```java
+
+  private Stage getNextStage(Stage current) {
+    switch (current) {
+      case INITIALIZE://在initialize的情况下，如果允许从资源缓存中读取数据返回状态RESOURCE_CACHE，否则获取下一个状态
+        return diskCacheStrategy.decodeCachedResource()
+            ? Stage.RESOURCE_CACHE : getNextStage(Stage.RESOURCE_CACHE);
+      case RESOURCE_CACHE://如果允许从原数据中读取，就返回DATA_CACHE，否则读取下一个状态。
+        return diskCacheStrategy.decodeCachedData()
+            ? Stage.DATA_CACHE : getNextStage(Stage.DATA_CACHE);
+      case DATA_CACHE://如果只是从缓存中读取，则返回状态FINISHEd否则返回SOURCE
+        return onlyRetrieveFromCache ? Stage.FINISHED : Stage.SOURCE;
+      case SOURCE:
+      case FINISHED:
+        return Stage.FINISHED;
+      default:
+        throw new IllegalArgumentException("Unrecognized stage: " + current);
+    }
+  }
+```
+
+```java
+private DataFetcherGenerator getNextGenerator() {
+    switch (stage) {
+      case RESOURCE_CACHE:
+        return new ResourceCacheGenerator(decodeHelper, this);
+      case DATA_CACHE:
+        return new DataCacheGenerator(decodeHelper, this);
+      case SOURCE:
+        return new SourceGenerator(decodeHelper, this);
+      case FINISHED:
+        return null;
+      default:
+        throw new IllegalStateException("Unrecognized stage: " + stage);
+    }
+  }
+```
+
+在第一次执行这个方法的时候会执行先从ResourceCacheGenerator中获取数据，如何ResourceCacheGenerator#startNext返回false。会获取下一状态的currentGenerator，为DataCacheGenerator。并且执行它的startNext方法。
+
+```
+private void runGenerators() {
+    ...
+    while (!isCancelled && currentGenerator != null
+        && !(isStarted = currentGenerator.startNext())) {
+      stage = getNextStage(stage);
+      currentGenerator = getNextGenerator();
+
+      if (stage == Stage.SOURCE) {
+        reschedule();
+        return;
+      }
+    }
+   ...
+  }
+```
+
+如果当前状态为SOURCE时，会调用reschedule（），并退出当前循环
+
+```java
+@Override
+  public void reschedule() {
+    runReason = RunReason.SWITCH_TO_SOURCE_SERVICE;
+    callback.reschedule(this);
+  }
+```
+
+可以看到reschedule将runReason设置为SWITCH_TO_SOURCE_SERVICE，并重新执行run方法。此时会执行SourceGenerator#startNext方法从网络中加载数据。当数据加载成功的时候会调用到SourceGenerator#onDataReady。
+
+```java
+  public void onDataReady(Object data) {
+    DiskCacheStrategy diskCacheStrategy = helper.getDiskCacheStrategy();
+    if (data != null && diskCacheStrategy.isDataCacheable(loadData.fetcher.getDataSource())) {
+      dataToCache = data;
+      // We might be being called back on someone else's thread. Before doing anything, we should
+      // reschedule to get back onto Glide's thread.
+      cb.reschedule();
+    } else {
+      cb.onDataFetcherReady(loadData.sourceKey, data, loadData.fetcher,
+          loadData.fetcher.getDataSource(), originalKey);
+    }
+  }
+```
+
+如果配置允许文件缓存。则会再次重新执行DecodeJob#run方法。因为前面执行过一次数据加载。dataToCache不为空，这一次不会进行数据加载，而是数据缓存。
+
+```java
+@Override
+  public boolean startNext() {
+    if (dataToCache != null) {
+      Object data = dataToCache;
+      dataToCache = null;
+      cacheData(data);
+    }
+
+    if (sourceCacheGenerator != null && sourceCacheGenerator.startNext()) {
+      return true;
+    }
+    sourceCacheGenerator = null;
+
+    loadData = null;
+    boolean started = false;
+    while (!started && hasNextModelLoader()) {
+      loadData = helper.getLoadData().get(loadDataListIndex++);
+      if (loadData != null
+          && (helper.getDiskCacheStrategy().isDataCacheable(loadData.fetcher.getDataSource())
+          || helper.hasLoadPath(loadData.fetcher.getDataClass()))) {
+        started = true;
+        loadData.fetcher.loadData(helper.getPriority(), this);
+      }
+    }
+    return started;
+  }
+```
+
+在cacheData中会执行文件缓存和 构建DataCacheGenerator从文件中读取数据。
+
+```java
+private void cacheData(Object dataToCache) {
+    long startTime = LogTime.getLogTime();
+    try {
+      Encoder<Object> encoder = helper.getSourceEncoder(dataToCache);
+      DataCacheWriter<Object> writer =
+          new DataCacheWriter<>(encoder, dataToCache, helper.getOptions());
+      originalKey = new DataCacheKey(loadData.sourceKey, helper.getSignature());
+      helper.getDiskCache().put(originalKey, writer);
+      if (Log.isLoggable(TAG, Log.VERBOSE)) {
+        Log.v(TAG, "Finished encoding source to cache"
+            + ", key: " + originalKey
+            + ", data: " + dataToCache
+            + ", encoder: " + encoder
+            + ", duration: " + LogTime.getElapsedMillis(startTime));
+      }
+    } finally {
+      loadData.fetcher.cleanup();
+    }
+
+    sourceCacheGenerator =
+        new DataCacheGenerator(Collections.singletonList(loadData.sourceKey), helper, this);
+  }
+  
+```
+
+在文件数据加载完成后会调用到DecodeJob#onDataFetcherReady进行图片数据加载和进行对应的变换。并且在DecodeJob#decodeFromRetrievedData中调用DecodeJob#decodeFromData进行数据加载。在DecodeJob#notifyEncodeAndRelease进行数据缓存到内存活动资源。这样就完成了一次图片的全部流程。
+
+
+
+# 总结：
+
+图片的加载过程分为两个部分，
+
+内存加载
+
+- 活动资源加载。如果加载成功，那么引用计数加一
+- LRU内存缓存加载。如果加载成功，那么从LRU缓存中移除，并且将对应的数据放入到活动资源。
+
+文件加载（如果前面两个流程执行成功就不会执行后面的）
+
+- 从文件活动资源中加载
+- 从文件中加载
+- 从网络中加载
+- 缓存 到文件中
+- 缓存到文件活动资源
+- 将数据放在活动资源中
+
+
+
