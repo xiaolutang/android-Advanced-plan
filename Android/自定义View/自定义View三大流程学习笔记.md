@@ -12,6 +12,12 @@
 
 
 
+# 
+
+# 认识MeasureSpec
+
+MeasureSpec 是View测量的辅助类，View的MeasureSpec由自身的宽高和父容器共同决定。系统会将View的LayoutParams根据父容器所施加的规则转换成对应的MeasureSpec。
+
 # 测量流程
 
 View的测量、布局、绘制都发起于ViewRootImpl。我们这里不关心这一个其实流程直接进入与我们密切相关View&ViewGroup的测量流程。View的测量通过两个方法来完成，measure和onMeasure。measure被设置成final，意味着子View不能继承它，自身的独特测量逻辑需要通过重写onMeasure来实现。
@@ -89,6 +95,8 @@ protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
 ```
 
 可以看到如果直接继承View,使用wrap_content与match_parent是相同的效果。
+
+
 
 我们知道Activity的根布局是DecorView，View的测量发起于measure方法
 
