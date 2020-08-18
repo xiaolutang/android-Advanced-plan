@@ -317,40 +317,7 @@ void layoutHorizontal(int left, int top, int right, int bottom) {
 
         final int count = getVirtualChildCount();
 
-        final int majorGravity = mGravity & Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK;
-        final int minorGravity = mGravity & Gravity.VERTICAL_GRAVITY_MASK;
-
-        final boolean baselineAligned = mBaselineAligned;
-
-        final int[] maxAscent = mMaxAscent;
-        final int[] maxDescent = mMaxDescent;
-
-        final int layoutDirection = getLayoutDirection();
-        switch (Gravity.getAbsoluteGravity(majorGravity, layoutDirection)) {
-            case Gravity.RIGHT:
-                // mTotalLength contains the padding already
-                childLeft = mPaddingLeft + right - left - mTotalLength;
-                break;
-
-            case Gravity.CENTER_HORIZONTAL:
-                // mTotalLength contains the padding already
-                childLeft = mPaddingLeft + (right - left - mTotalLength) / 2;
-                break;
-
-            case Gravity.LEFT:
-            default:
-                childLeft = mPaddingLeft;
-                break;
-        }
-
-        int start = 0;
-        int dir = 1;
-        //In case of RTL, start drawing from the last child.
-        if (isLayoutRtl) {
-            start = count - 1;
-            dir = -1;
-        }
-
+        //省略代码...
         for (int i = 0; i < count; i++) {
             final int childIndex = start + dir * i;
             final View child = getVirtualChildAt(childIndex);
@@ -364,54 +331,7 @@ void layoutHorizontal(int left, int top, int right, int bottom) {
                 final LinearLayout.LayoutParams lp =
                         (LinearLayout.LayoutParams) child.getLayoutParams();
 
-                if (baselineAligned && lp.height != LayoutParams.MATCH_PARENT) {
-                    childBaseline = child.getBaseline();
-                }
-
-                int gravity = lp.gravity;
-                if (gravity < 0) {
-                    gravity = minorGravity;
-                }
-
-                switch (gravity & Gravity.VERTICAL_GRAVITY_MASK) {
-                    case Gravity.TOP:
-                        childTop = paddingTop + lp.topMargin;
-                        if (childBaseline != -1) {
-                            childTop += maxAscent[INDEX_TOP] - childBaseline;
-                        }
-                        break;
-
-                    case Gravity.CENTER_VERTICAL:
-                        // Removed support for baseline alignment when layout_gravity or
-                        // gravity == center_vertical. See bug #1038483.
-                        // Keep the code around if we need to re-enable this feature
-                        // if (childBaseline != -1) {
-                        //     // Align baselines vertically only if the child is smaller than us
-                        //     if (childSpace - childHeight > 0) {
-                        //         childTop = paddingTop + (childSpace / 2) - childBaseline;
-                        //     } else {
-                        //         childTop = paddingTop + (childSpace - childHeight) / 2;
-                        //     }
-                        // } else {
-                        childTop = paddingTop + ((childSpace - childHeight) / 2)
-                                + lp.topMargin - lp.bottomMargin;
-                        break;
-
-                    case Gravity.BOTTOM:
-                        childTop = childBottom - childHeight - lp.bottomMargin;
-                        if (childBaseline != -1) {
-                            int descent = child.getMeasuredHeight() - childBaseline;
-                            childTop -= (maxDescent[INDEX_BOTTOM] - descent);
-                        }
-                        break;
-                    default:
-                        childTop = paddingTop;
-                        break;
-                }
-
-                if (hasDividerBeforeChildAt(childIndex)) {
-                    childLeft += mDividerWidth;
-                }
+                //省略代码...
 
                 childLeft += lp.leftMargin;
                 setChildFrame(child, childLeft + getLocationOffset(child), childTop,
@@ -424,4 +344,17 @@ void layoutHorizontal(int left, int top, int right, int bottom) {
         }
     }
 ```
+
+可以看到childLeft会逐渐增大，这就意味着后面的View会放在靠右的位置,这个符合水平LinearLayout的布局特性。setChildFrame会调用子View的layout方法。而且可以看到布局的宽高就是子view的测量宽高。
+
+# 绘制流程
+
+绘制流程相对而言比较简单，它遵循下面的几个步骤
+
+1. 绘制背景
+2. 绘制自己（ViewGroup默认关闭）
+3. 绘制children
+4. 绘制装饰
+
+View绘制过程的传递是通过dispatchDraw来实现的，dispatchDraw会遍历调用所有子View的draw方法，将draw事件传递下去。
 
