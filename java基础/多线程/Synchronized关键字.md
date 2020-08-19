@@ -13,8 +13,6 @@ Java中每一个对象都可以作为锁，这是synchronized实现同步的基�
 ```java
 package com.example.txl.tool.syn;
 
-
-
 /**
  * Copyright (c) 2020 唐小陆 All rights reserved.
  * author：txl
