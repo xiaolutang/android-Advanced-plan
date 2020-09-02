@@ -103,7 +103,6 @@ final TreeMapEntry<K,V> getEntry(Object key) {
 
 因为涉及到红黑树的数据结构，等待学习了相关的数据结构再来阅读源码。
 
-## TreeMap如何循环遍历
+## TreeMap如何比较相同
 
-# HashMap
-
+TreeMap通过compareTo函数或者外部提供的 Comparator对象比较是否相同，对插入的 元素进行升序排列。
