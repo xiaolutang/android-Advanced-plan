@@ -39,3 +39,14 @@ http的大致通信过程如下
 
 # https
 
+https的通信过程有下面几个特点
+
+1. 确认通信双方的真实身份
+2. 保证通信双方的信息不被窃取
+3. 传输高效
+
+通信过程大致如下。
+
+![image-20201115143559670](D:\android-Advanced-plan\http\https的大致通信过程.png)
+
+参考：https://www.cnblogs.com/shijingjing07/p/5965792.html
