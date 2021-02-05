@@ -40,3 +40,12 @@ android.enableJetifier=true
 解决后的版本：
 
 ![image-20201204101444959](D:\android-Advanced-plan\Android\热修复\解决问题的gradle版本.png)
+
+## 官方demo构建基准补丁apk dex时遇到的问题
+
+> com.tencent.tinker.android.dex.DexException: com.tencent.tinker.android.dex.DexException: Unexpected magic: [100, 101, 120, 10, 48, 51, 56, 0]
+
+![1607350217773](官方demo构建补丁dex时的问题.png)
+
+在生成基准apk的时候不要使用android studio的三角形直接运行，会有问题。使用 gradlew assembleDebug 进行构建。
+
