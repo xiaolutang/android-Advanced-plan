@@ -4,8 +4,20 @@
 
 1. 通过这次学习输出让自己加深对Service的了解
 2. 本篇文章希望通过源码的分析，来解释Service的生命周期现象
+3. 对于服务工作实现的细节上，有很多自己不明白的地方。但是网上也并没有一个详细的解答
 
-文章出下面的几个方向出发
+# 问题
+
+1. startService时为什么onCreate只调用一次，而onStartCommand却能够调用多次？
+2. bindService的过程中为什么onBind只会在第一次绑定的过程中调用？
+3. 为什么startService加bindService开启的服务需要同时调用stop和unbind来暂停？
+4. 服务是如何检测anr的？
+5. 绑定服务之后，服务端是如何调用到客户端的？
+6. ServiceConnection#onServiceConnected在哪个线程执行？
+
+
+
+文章出下面的几个方向出发，进行源码探究，以解释上面提出的问题
 
 - 服务的生命周期
 - 服务的工作过程
@@ -217,6 +229,10 @@ ActivityThread#handleCreateService
 ```java
  private final void sendServiceArgsLocked(ServiceRecord r, boolean execInFg,
             boolean oomAdjusted) throws TransactionTooLargeException {
+        final int N = r.pendingStarts.size();//在star
+        if (N == 0) {
+            return;
+        }
         ...
         bumpServiceExecutingLocked(r, execInFg, "start");
         ...
@@ -276,6 +292,110 @@ private void handleServiceArgs(ServiceArgsData data) {
 ## stopService的过程
 
 暂定服务有两种方式，调用stopService(),服务自己调用stopself()。我们这里分析stopService的过程。
+
+stopService的最终会调用ActiveServices#stopServiceLocked（）
+
+```java
+private void stopServiceLocked(ServiceRecord service) {
+       ...
+        service.startRequested = false;
+        ...
+        service.callStart = false;
+		//判断是否需要暂停服务
+        bringDownServiceIfNeededLocked(service, false, false);
+    }
+
+private final void bringDownServiceIfNeededLocked(ServiceRecord r, boolean knowConn,
+            boolean hasConn) {
+        //Slog.i(TAG, "Bring down service:");
+        //r.dump("  ");
+		//判断服务是否需要保存，判断依据是当前是否有绑定的对象 以及service.startRequested 是否为true
+        if (isServiceNeededLocked(r, knowConn, hasConn)) {
+            return;
+        }
+
+        // Are we in the process of launching?
+        if (mPendingServices.contains(r)) {
+            return;
+        }
+
+        bringDownServiceLocked(r);
+    }
+
+
+```
+
+bringDownServiceLocked的实现过程
+
+```java
+ private final void bringDownServiceLocked(ServiceRecord r) {
+        //Slog.i(TAG, "Bring down service:");
+        //r.dump("  ");
+
+        // Report to all of the connections that the service is no longer
+        // available.
+     	//如果此时还有连接的服务，通知这些连接不可用
+        ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = r.getConnections();
+        for (int conni = connections.size() - 1; conni >= 0; conni--) {
+            ArrayList<ConnectionRecord> c = connections.valueAt(conni);
+            for (int i=0; i<c.size(); i++) {
+                ConnectionRecord cr = c.get(i);
+                // There is still a connection to the service that is
+                // being brought down.  Mark it as dead.
+                cr.serviceDead = true;
+                cr.stopAssociation();
+                try {
+                    cr.conn.connected(r.name, null, true);
+                } catch (Exception e) {
+                    Slog.w(TAG, "Failure disconnecting service " + r.shortInstanceName
+                          + " to connection " + c.get(i).conn.asBinder()
+                          + " (in " + c.get(i).binding.client.processName + ")", e);
+                }
+            }
+        }
+
+        // Tell the service that it has been unbound.
+     //如果此时还有连接的服务，解绑这些连接
+        if (r.app != null && r.app.thread != null) {
+            boolean needOomAdj = false;
+            for (int i = r.bindings.size() - 1; i >= 0; i--) {
+                IntentBindRecord ibr = r.bindings.valueAt(i);
+                if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Bringing down binding " + ibr
+                        + ": hasBound=" + ibr.hasBound);
+                if (ibr.hasBound) {
+                    try {
+                        bumpServiceExecutingLocked(r, false, "bring down unbind");
+                        needOomAdj = true;
+                        ibr.hasBound = false;
+                        ibr.requested = false;
+                        r.app.thread.scheduleUnbindService(r,
+                                ibr.intent.getIntent());
+                    } catch (Exception e) {
+                        Slog.w(TAG, "Exception when unbinding service "
+                                + r.shortInstanceName, e);
+                        needOomAdj = false;
+                        serviceProcessGoneLocked(r);
+                        break;
+                    }
+                }
+            }
+            if (needOomAdj) {
+                mAm.updateOomAdjLocked(r.app, true,
+                        OomAdjuster.OOM_ADJ_REASON_UNBIND_SERVICE);
+            }
+        }
+		...
+        // 停止服务
+         r.app.thread.scheduleStopService(r);
+		...
+     //清除绑定信息
+        if (r.bindings.size() > 0) {
+            r.bindings.clear();
+        }
+    }
+```
+
+
 
 ## bindService的过程
 
@@ -379,19 +499,274 @@ LoadedApk#ServiceDispatcher
 
 ### ActivityManagerService绑定的过程
 
-绑定服务会调用ActivityManagerService#bindIsolatedService方法
+绑定服务会调用ActivityManagerService#bindIsolatedService方法在里面又会调用ActiveServices#bindServiceLocked方法
+
+```java
+int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
+            String resolvedType, final IServiceConnection connection, int flags,
+            String instanceName, String callingPackage, final int userId)
+            throws TransactionTooLargeException {
+        ...
+
+            //以进程为单位存储 绑定服务的信息
+            AppBindRecord b = s.retrieveAppBindingLocked(service, callerApp);
+            ConnectionRecord c = new ConnectionRecord(b, activity,
+                    connection, flags, clientLabel, clientIntent,
+                    callerApp.uid, callerApp.processName, callingPackage);
+
+            ...
+			//如果绑定的时候带有BIND_AUTO_CREATE 标记，在服务没有创建的情况下，先创建服务
+            if ((flags&Context.BIND_AUTO_CREATE) != 0) {
+                s.lastActivity = SystemClock.uptimeMillis();
+                //bringUpServiceLocked 在前面启动服务的时候我们见过，这里为什么没有调用onStartCommand 因为 ServiceRecord#pendingStarts 长度为0 因此这个过程中只会调用onCreate
+                if (bringUpServiceLocked(s, service.getFlags(), callerFg, false,
+                        permissionsReviewRequired) != null) {
+                    return 0;
+                }
+            }
+ 			...
+			// b.intent.received 会在服务发布的时候，被置为true 
+            if (s.app != null && b.intent.received) {
+                // Service is already running, so we can immediately
+                // publish the connection.
+                try {
+                    c.conn.connected(s.name, b.intent.binder, false);
+                } catch (Exception e) {
+                    Slog.w(TAG, "Failure sending service " + s.shortInstanceName
+                            + " to connection " + c.conn.asBinder()
+                            + " (in " + c.binding.client.processName + ")", e);
+                }
+
+                // If this is the first app connected back to this binding,
+                // and the service had previously asked to be told when
+                // rebound, then do so.
+                //针对同一个IntentFiler 匹配的 当绑定的进程数为1的时候 并且 IntentBindRecord #doRebind 为true
+                if (b.intent.apps.size() == 1 && b.intent.doRebind) {
+                    requestServiceBindingLocked(s, b.intent, callerFg, true);
+                }
+            } else if (!b.intent.requested) {
+                requestServiceBindingLocked(s, b.intent, callerFg, false);
+            }
+
+           ...
+
+        return 1;
+    }
+```
+
+可以看到最后又会调用requestServiceBindingLocked（），它的最后一个参数会影响调用onBind()还是onRebind()
+
+```java
+private final boolean requestServiceBindingLocked(ServiceRecord r, IntentBindRecord i,
+            boolean execInFg, boolean rebind) throws TransactionTooLargeException {
+        if (r.app == null || r.app.thread == null) {
+            // If service is not currently running, can't yet bind.
+            return false;
+        }
+		...
+        if ((!i.requested || rebind) && i.apps.size() > 0) {
+            try {
+                //发送消息开始进行anr监测
+                bumpServiceExecutingLocked(r, execInFg, "bind");
+                r.app.forceProcessStateUpTo(ActivityManager.PROCESS_STATE_SERVICE);
+                //将消息回调到 service所在的进程
+                r.app.thread.scheduleBindService(r, i.intent.getIntent(), rebind,
+                        r.app.getReportedProcState());
+                if (!rebind) {
+                    i.requested = true;
+                }
+                i.hasBound = true;
+                i.doRebind = false;
+            }
+            ...
+        }
+        return true;
+    }
+```
+
+最终会通过ActivityThread H handler 调用到 ActivityThread#handleBindService()
+
+```java
+ private void handleBindService(BindServiceData data) {
+        Service s = mServices.get(data.token);
+        if (DEBUG_SERVICE)
+            Slog.v(TAG, "handleBindService s=" + s + " rebind=" + data.rebind);
+        if (s != null) {
+            try {
+                data.intent.setExtrasClassLoader(s.getClassLoader());
+                data.intent.prepareToEnterProcess();
+                try {
+                    if (!data.rebind) {
+                        //调用的是onBind 
+                        IBinder binder = s.onBind(data.intent);
+                        //发布服务到ActivityService
+                        ActivityManager.getService().publishService(
+                                data.token, data.intent, binder);
+                    } else {
+                        s.onRebind(data.intent);
+                        ActivityManager.getService().serviceDoneExecuting(
+                                data.token, SERVICE_DONE_EXECUTING_ANON, 0, 0);
+                    }
+                } catch (RemoteException ex) {
+                    throw ex.rethrowFromSystemServer();
+                }
+            } catch (Exception e) {
+                if (!mInstrumentation.onException(s, e)) {
+                    throw new RuntimeException(
+                            "Unable to bind to service " + s
+                            + " with " + data.intent + ": " + e.toString(), e);
+                }
+            }
+        }
+    }
+```
+
+### ActivityManagerService发布服务的过程
+
+ActivityManagerService#publishService最后会调用ActiveService#publishServiceLocked()
+
+```java
+void publishServiceLocked(ServiceRecord r, Intent intent, IBinder service) {
+        final long origId = Binder.clearCallingIdentity();
+        try {
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "PUBLISHING " + r
+                    + " " + intent + ": " + service);
+            if (r != null) {
+                Intent.FilterComparison filter
+                        = new Intent.FilterComparison(intent);
+                //注意这里是以 intent filter 作为key 意味着 当intent filter 不一样的时候又会执行onBind流程。
+                IntentBindRecord b = r.bindings.get(filter);
+                if (b != null && !b.received) {
+                    //保存onBind返回的binder代理对象
+                    b.binder = service;
+                    //重置相关标记
+                    b.requested = true;
+                    b.received = true;
+                    ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = r.getConnections();
+                    for (int conni = connections.size() - 1; conni >= 0; conni--) {
+                        ArrayList<ConnectionRecord> clist = connections.valueAt(conni);
+                        for (int i=0; i<clist.size(); i++) {
+                            ConnectionRecord c = clist.get(i);
+                            if (!filter.equals(c.binding.intent.intent)) {
+                                if (DEBUG_SERVICE) Slog.v(
+                                        TAG_SERVICE, "Not publishing to: " + c);
+                                if (DEBUG_SERVICE) Slog.v(
+                                        TAG_SERVICE, "Bound intent: " + c.binding.intent.intent);
+                                if (DEBUG_SERVICE) Slog.v(
+                                        TAG_SERVICE, "Published intent: " + intent);
+                                continue;
+                            }
+                            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Publishing to: " + c);
+                            try {
+                                //回调服务已经连接 conn 是开始传递的LoadedApk#ServiceDispatcher#InnerConnection 的代理对象
+                                c.conn.connected(r.name, service, false);
+                            } catch (Exception e) {
+                                Slog.w(TAG, "Failure sending service " + r.shortInstanceName
+                                      + " to connection " + c.conn.asBinder()
+                                      + " (in " + c.binding.client.processName + ")", e);
+                            }
+                        }
+                    }
+                }
+				//解除anr监测
+                serviceDoneExecutingLocked(r, mDestroyingServices.contains(r), false);
+            }
+        } finally {
+            Binder.restoreCallingIdentity(origId);
+        }
+    }
+```
+
+### ServiceConnection连接回调过程
+
+相对于其它的流程，连接回调相对较简单在绑定的时候根据传入的ServiceConnection 代理对象构造ConnectionRecord
+
+```java
+ConnectionRecord c = new ConnectionRecord(b, activity,
+                    connection, flags, clientLabel, clientIntent,
+                    callerApp.uid, callerApp.processName, callingPackage);
+			//此时的binder 就是客户端传入的 InnerConnection 代理
+            IBinder binder = connection.asBinder();
+            s.addConnection(binder, c);
+```
+
+待服务发布后，再从ServiceRecord中取出对应的ConnectionRecord 进行回调即可。
+
+但是这里并不是直接调用到我们自己的ServiceConnection而是在LoadedApk#ServiceDispatcher#InnerConnection#connected（）
+
+而最后又会调用到ServiceDispatcher#connected（）
+
+```java
+ public void connected(ComponentName name, IBinder service, boolean dead) {
+            if (mActivityExecutor != null) {
+                mActivityExecutor.execute(new RunConnection(name, service, 0, dead));
+            } else if (mActivityThread != null) {
+                mActivityThread.post(new RunConnection(name, service, 0, dead));
+            } else {
+                doConnected(name, service, dead);
+            }
+        }
+```
+
+
 
 ## unBindService的过程
 
+解除绑定最终会调用ActiveServices#removeConnectionLocked（）
+
+```java
+ void removeConnectionLocked(ConnectionRecord c, ProcessRecord skipApp,
+            ActivityServiceConnectionsHolder skipAct) {
+     ...
+     //解绑服务
+        s.app.thread.scheduleUnbindService(s, b.intent.intent.getIntent());
+     ...
+			//判断是否需要停止服务
+            if ((c.flags&Context.BIND_AUTO_CREATE) != 0) {
+                boolean hasAutoCreate = s.hasAutoCreateConnections();
+                if (!hasAutoCreate) {
+                    if (s.tracker != null) {
+                        s.tracker.setBound(false, mAm.mProcessStats.getMemFactorLocked(),
+                                SystemClock.uptimeMillis());
+                    }
+                }
+                bringDownServiceIfNeededLocked(s, true, hasAutoCreate);
+            }
+        }
+    }
+```
+
+# anr的监测
+
+根据前面的分析了解，Service anr 监测主要通过发送一个定时消息，如果在固定时间内没有移除对应消息就会触发anr
+
+ActiveServices#bumpServiceExecutingLocked()
+
+```java
+private final void bumpServiceExecutingLocked(ServiceRecord r, boolean fg, String why) {
+        ...
+        scheduleServiceTimeoutLocked(r.app);
+            ...
+        r.executeFg |= fg;
+        r.executeNesting++;
+        r.executingStart = now;
+    }
+
+void scheduleServiceTimeoutLocked(ProcessRecord proc) {
+        if (proc.executingServices.size() == 0 || proc.thread == null) {
+            return;
+        }
+        Message msg = mAm.mHandler.obtainMessage(
+                ActivityManagerService.SERVICE_TIMEOUT_MSG);
+        msg.obj = proc;
+        mAm.mHandler.sendMessageDelayed(msg,
+                proc.execServicesFg ? SERVICE_TIMEOUT : SERVICE_BACKGROUND_TIMEOUT);
+    }
+```
 
 
-# 问题：
 
-1. startService时为什么onCreate只调用一次，而onStartCommand却能够调用多次？
-2. bindService的过程中为什么onBind只会在第一次绑定的过程中调用？
-3. 为什么startService加bindService通过stopService不能停止服务？
-4. 服务是如何检测anr的？
-5. 绑定服务之后，服务端是如何调用到客户端的？
+# 问题解答：
 
 
 
