@@ -15,6 +15,8 @@
 5. 绑定服务之后，服务端是如何调用到客户端的？
 6. ServiceConnection#onServiceConnected在哪个线程执行？
 
+如果你对上面的问题了然于心，那么这篇文章对你的作用可能不大。如果你对此还有疑惑，希望这篇文章能够给到一些小的帮助。
+
 
 
 文章出下面的几个方向出发，进行源码探究，以解释上面提出的问题
@@ -65,7 +67,13 @@ https://developer.android.google.cn/guide/components/services
 
 https://github.com/xiaolutang/androidTool/blob/master/app/src/main/java/com/example/txl/tool/service/ServiceDemoActivity.java
 
+
+
 # 服务的工作过程
+
+看个图片舒缓一下，接下来进入枯燥的源码阅读
+
+![](休息图片.jpg)
 
 服务的工作过程主要是应用程序，与ActivityManagerService的交互过程。代码分析基于api 30
 
@@ -736,6 +744,40 @@ ConnectionRecord c = new ConnectionRecord(b, activity,
     }
 ```
 
+在ActivityThread中会调用handleUnbindService
+
+```java
+private void handleUnbindService(BindServiceData data) {
+        Service s = mServices.get(data.token);
+        if (s != null) {
+            try {
+                data.intent.setExtrasClassLoader(s.getClassLoader());
+                data.intent.prepareToEnterProcess();
+                boolean doRebind = s.onUnbind(data.intent);
+                try {
+                    if (doRebind) {//如果返回true 会在ActiveServices#unbindFinishedLocked 中重置相关标记，下次调用onRebind
+                        ActivityManager.getService().unbindFinished(
+                                data.token, data.intent, doRebind);
+                    } else {
+                        ActivityManager.getService().serviceDoneExecuting(
+                                data.token, SERVICE_DONE_EXECUTING_ANON, 0, 0);
+                    }
+                } catch (RemoteException ex) {
+                    throw ex.rethrowFromSystemServer();
+                }
+            } catch (Exception e) {
+                if (!mInstrumentation.onException(s, e)) {
+                    throw new RuntimeException(
+                            "Unable to unbind to service " + s
+                            + " with " + data.intent + ": " + e.toString(), e);
+                }
+            }
+        }
+    }
+```
+
+
+
 # anr的监测
 
 根据前面的分析了解，Service anr 监测主要通过发送一个定时消息，如果在固定时间内没有移除对应消息就会触发anr
@@ -764,41 +806,77 @@ void scheduleServiceTimeoutLocked(ProcessRecord proc) {
     }
 ```
 
+发送的消息会在ActiveServices#serviceTimeout（）中进行处理
+
+```java
+void serviceTimeout(ProcessRecord proc) {
+        String anrMessage = null;
+        synchronized(mAm) {
+            ...
+            //这里会对anr进行处理
+           mAm.mAnrHelper.appNotResponding(proc, anrMessage);
+            ...
+    }
+```
+
+解除anr监测：在ActiveServices#serviceDoneExecutingLocked（）
+
+```java
+ private void serviceDoneExecutingLocked(ServiceRecord r, boolean inDestroying,
+            boolean finishing) {
+        ...
+        //发送消息移除监听
+        mAm.mHandler.removeMessages(ActivityManagerService.SERVICE_TIMEOUT_MSG, r.app);
+     	...
+    }
+```
+
 
 
 # 问题解答：
 
+1. startService时为什么onCreate只调用一次，而onStartCommand却能够调用多次？
+
+   onCreate的调用依据的是ServiceRecord#app 而在服务运行的时候这个对象会被赋值，此后在服务运行期间该对象都不为空，因此onCreate只会被调用一次。onStartCommand 调用的先决条件是ServiceRecord#pendingStarts的个数是否为0 当不为0 且服务在正常运行的时候，就能够调用onStartCommand（）。且pendingStarts有多少个就会调用多少次onStartCommand（）
+
+2. bindService的过程中为什么onBind只会在第一次绑定的过程中调用？
+
+   绑定服务的过程中，并不是onBind()方法只会调用一次，而是针对同一个IntentFilter onBind()只会调用一次。绑定服务有几个比较关键的数据结构
+
+   - IntentBindRecord   以Intent#FilterComparison作为关键key,来保存绑定服务相关的信息
+
+   - AppBindRecord  以进程为单位，持有绑定服务的相关信息
+
+     ```java
+     /**
+      * An association between a service and one of its client applications.
+      */
+     final class AppBindRecord {
+         final ServiceRecord service;    // The running service.
+         final IntentBindRecord intent;  // The intent we are bound to.
+         final ProcessRecord client;     // Who has started/bound the service.
+     }
+     ```
+
+   - ConnectionRecord  绑定服务连接相关的信息
+
+3. 为什么startService加bindService开启的服务需要同时调用stop和unbind来暂停？
+
+   要停止服务需要将绑定数置位0且ServiceRecord#startRequested 为false  而stopService()只能将 startRequested 置为false，将绑定对象置为0 需要unBind来实现，因此二者都要调用。
+
+4. 服务是如何检测anr的？
+
+   anr 的检测是在每次通过IApplicationThread 交互的时候， 会发送一个延时消息到ActivitymanagerService#MainHandler 对象，如果到了固定的时间还没有解除这个消息，那么就会service 就会捕获anr。当程序交互正常进行，会在最后移除这个消息，此时会结束anr 监测。
+
+5. 绑定服务之后，服务端是如何调用到客户端的？
+
+   ServiceConnection 并不具备跨进程传输的能力，在绑定服务的过程中，系统会构造一个LoadedApk#ServiceDispacther#InnerConnection 对象进行跨进程传输，当连接信息发生改变的时候会回调到InnerConnection   而 InnerConnection  通过持有ServiceDispacther 而调用ServiceDispacther#connected  而ServiceDispacther持有我们传递进入的ServiceConnection 。从而代码会调用到我们自己的ServiceConnection 。需要注意的是ServiceDispacther 是以context为单位进行存储的，当通过activity或者更service 进行绑定，activity/service 结束时会自己解绑并清除对应的连接信息，我们即使不人为调用解绑操作也不会发生内存泄漏，但是这个并不是一个好习惯。
+
+6. ServiceConnection#onServiceConnected在哪个线程执行？
+
+   在api 30 的时候绑定服务可以提供一个Executor  handler 也就是说如果我们提供Excutor 那么就运行在Excutor 执行的线程池，否则看handler 是否为空，如果不为空，那么回调方法运行在handler所在的线程。否则运行在bind线程池。但是在绑定服务的时候如果我们不传递Excutor 系统默认会提供主线程handler。即默认情况下运行在主线程
 
 
 
+如果还有一些关于服务的其它问题，欢迎留言，我们一起探究源码，解答相关的问题。
 
-bumpServiceExecutingLocked  发送延时消息，处理anr
-
-serviceDoneExecutingLocked
-
-
-
-服务的生命周期
-
-如何判断服务被启动
-
-服务如何关闭
-
-解绑服务会导致服务停止吗？
-
-
-
-
-
-研究方向：
-
-1. 服务生命周期
-   - 启动服务
-   - 绑定服务
-   - 启动绑定   + 绑定启动
-   - 服务生命周期的管理
-3. 服务的工作过程
-   - 服务的开启 如何判断服务已经启动？
-   - 服务绑定  为什么当没有绑定的对象时服务会停止？
-   - 通过源码阅读来查看为什么会有这个现象。
-3. 前台服务
