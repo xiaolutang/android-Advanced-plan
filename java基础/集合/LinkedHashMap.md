@@ -65,6 +65,16 @@ LinkedHashMap重写了newNode方法，每次生成新的节点都会调用linkNo
 
 想要按照访问顺序访问LinkedHashMap中的数据。需要将成员变量accessOrder设置成true。
 
+还有一点需要注意，linkedHashMap是否需要移除元素需要配合removeEldestEntry方法来实现，但是默认返回的是false因此。如果用linkedhashmap来实现它。我们需要根据自己的逻辑来实现它。
+
+```java
+protected boolean removeEldestEntry(Map.Entry<K,V> eldest) {
+        return false;
+    }
+```
+
+
+
 ### 替换元素时移动到链表位置
 
 HashMap在插入数据的时候如果原来已经存在这个数据，会用新的value替换原来的value并调用 afterNodeAccess。
