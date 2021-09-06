@@ -9,6 +9,8 @@
 - ANR相关日志分析
 - ANR监控
 
+文章作为学习笔记大量引用了 [今日头条 ANR 优化实践系列 - 设计原理及影响因素](https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ==&mid=2247488116&idx=1&sn=fdf80fa52c57a3360ad1999da2a9656b&chksm=e9d0d996dea750807aadc62d7ed442948ad197607afb9409dd5a296b16fb3d5243f9224b5763&token=569762407&lang=zh_CN#rd)  的内容。
+
 # ANR设计目的
 
 定义引用于 [今日头条 ANR 优化实践系列 - 设计原理及影响因素](https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ==&amp;mid=2247488116&amp;idx=1&amp;sn=fdf80fa52c57a3360ad1999da2a9656b&amp;chksm=e9d0d996dea750807aadc62d7ed442948ad197607afb9409dd5a296b16fb3d5243f9224b5763&amp;token=569762407&amp;lang=zh_CN#rd)
@@ -152,7 +154,28 @@ void scheduleServiceTimeoutLocked(ProcessRecord proc) {
 
 ## ANR Trace Dump 流程
 
-以服务为例，在ANR发生的时候会调用到ActiveServices#serviceTimeout
+当系统判定超时的时候，会调用AMS搜集本次ANR相关信息，并存档(data/anr/trace，data/system/dropbox) 在 [今日头条 ANR 优化实践系列 - 设计原理及影响因素](https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ==&mid=2247488116&idx=1&sn=fdf80fa52c57a3360ad1999da2a9656b&chksm=e9d0d996dea750807aadc62d7ed442948ad197607afb9409dd5a296b16fb3d5243f9224b5763&token=569762407&lang=zh_CN#rd)    对整个流程描述的非常清楚
+
+1. 判断是不是真的anr
+2. 判断当前ANR进程对用户是否可感知
+3. 收集统计与该进程有关联的进程，或系统核心服务进程的信息
+4. 始统计各进程本地的更多信息，如虚拟机相关信息、Java 线程状态及堆栈。以便于知道此刻这些进程乃至系统都发生了什么情况
+
+
+
+在上述ANR信息获取完成后，会开始进行保存相关的信息，但是出于安全考虑，进程之间是相互隔离的，即使是系统进程也无法直接获取其它进程相关信息。因此需要借助 IPC 通信的方式，将指令发送到目标进程，目标进程接收到信号后，协助完成自身进程 Dump 信息并发送给系统进程，大致流程图如下：
+
+![](ANR_DUMP流程 .webp)
+
+应用中通过SignalCatcher 线程接收信号并处理ANR相关信息，
+
+首先 Dump 当前虚拟机有关信息，如内存状态，对象，加载 Class，GC 等等，接下来设置各线程标记位(check_point)，以请求线程起态(suspend)。其它线程运行过程进行上下文切换时，会检查该标记，如果发现有挂起请求，会主动将自己挂起。等到所有线程挂起后，SignalCatcher 线程开始遍历 Dump 各线程的堆栈和线程数据，结束之后再唤醒线程。期间如果某些线程一直无法挂起直到超时，那么本次 Dump 流程则失败，并主动抛出超时异常。
+
+![](SignalCatcher工作过程.webp)
+
+从这些流程可以看出发生 ANR 时，系统进程除了发送信号给其它进程之外，自身也 Dump Trace，并获取系统整体及各进程 CPU 使用情况，且将其它进程 Dump 发送的数据写到文件中。因此这些开销将会导致系统进程在 ANR 过程承担很大的负载，这是为什么我们经常在 ANR Trace 中看到 SystemServer 进程 CPU 占比普遍较高的主要原因。
+
+
 
 
 
