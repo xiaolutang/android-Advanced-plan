@@ -1,4 +1,8 @@
-来源：[“终于懂了” 系列：Android屏幕刷新机制—VSync、Choreographer 全面理解！](https://juejin.cn/post/6863756420380196877#heading-7)
+文章的来源主要有两个部分：
+
+[“终于懂了” 系列：Android屏幕刷新机制—VSync、Choreographer 全面理解！](https://juejin.cn/post/6863756420380196877#heading-7)
+
+Android系统源码阅读。
 
 # 显示系统的基础知识
 
@@ -535,6 +539,8 @@ void doTraversal() {
     }
 }
 ```
+
+Choreographer对上承接ViewRootImpl 发起的屏幕刷新请求，对下监听垂直同步信号，调用ViewRootImpl 进行ui更新。
 
 ## 小结：app卡顿原因
 
