@@ -1,3 +1,13 @@
+Android多媒体服务架构主要涉及到下面几个关键类
+
+MediaBrowser:多媒体浏览客户端
+
+MediaBrowserService:多媒体浏览服务
+
+MediaSession:多媒体会话与播放器连接，响应播控操作
+
+MediaController:多媒体控制器
+
 # MeidaBrowser的工作过程
 
 MeidaBrowser用于多媒体信息的浏览，这里详细分析其连接和订阅的过程。
@@ -5,6 +15,8 @@ MeidaBrowser用于多媒体信息的浏览，这里详细分析其连接和订�
 ## MediaBrowser与服务端进行连接
 
 ![image-20211110142048935](MediaBrowser连接过程.png)
+
+
 
 ### MediaBrowser的构造
 
@@ -243,6 +255,8 @@ MediaBrowser#getRoot 和MediaBrowser#getExtras 返回的是MediaBrowserService#o
 ## MediaBrowser订阅
 
 ![image-20211110143055234](MediaBrowser订阅的过程.png)
+
+
 
 ### MediaBrowser发起订阅
 
@@ -677,6 +691,8 @@ public MediaController(Context context, ISessionController sessionBinder) {
 MediaSession#ISession对象初始化流程
 
 ![image-20211110152110391](MediaSession--ISession对象初始化.png)
+
+
 
 MediaSession UML 类图关系
 
