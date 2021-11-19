@@ -1,0 +1,6 @@
+#pub中获取的秘钥后8位
+signing.keyId=894225F9
+signing.password=asdfghjkl@001
+signing.secretKeyRingFile=C\:\\Users\\tangxiaolu\\secring.gpg
+ossrhUsername=tangxiaolu
+ossrhPassword=Asdfghjkl@001
