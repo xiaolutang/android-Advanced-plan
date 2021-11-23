@@ -20,7 +20,88 @@
 
 # Glide源码分析
 
-因为分析过一次原来流程了，这次就不再跟着流程走了。
+因为分析过一次原来流程了，这次就不再跟着流程走了。而是围绕一些感兴趣的点来进行代码分析。
 
 ## Glide生命周期管理
+
+Glide#with有多个重载方法，最终会变成两种类型，Activity和Fragment  Glide会在下面添加不可见的fragment然后利用fragment的生命周期来对请求的生命周期进行管理。
+
+### 源码实现：
+
+Glide#with内部会先调用getRetriever获取一个RequestManagerRetriever在由RequestManagerRetriever#get获取一个RequestManager，RequestManagerRetriever的主要工作职责是从activity或fragment获取对应的Requestmanager。RequestManagerRetriever有多个get重载
+
+![image-20211123090528893](\RequestManagerRetriever#get重载.png)
+
+以传递Fragment为例：RequestManager的获取分为两个流程
+
+1. 查找对应的SupportRequestManagerFragment
+2. 构建RequestManager
+
+**查找：**
+
+```java
+@NonNull
+  public RequestManager get(@NonNull Fragment fragment) {
+//    ...
+    if (Util.isOnBackgroundThread()) {
+      return get(fragment.getActivity().getApplicationContext());
+    } else {
+      FragmentManager fm = fragment.getChildFragmentManager();
+      return supportFragmentGet(fragment.getActivity(), fm, fragment, fragment.isVisible());
+    }
+  }
+
+@NonNull
+  private RequestManager supportFragmentGet(
+      @NonNull Context context,
+      @NonNull FragmentManager fm,
+      @Nullable Fragment parentHint,
+      boolean isParentVisible) {
+      //获取一个fragment，如果没有的话会创建一个SupportRequestManagerFragment
+    SupportRequestManagerFragment current =
+        getSupportRequestManagerFragment(fm, parentHint, isParentVisible);
+    RequestManager requestManager = current.getRequestManager();
+    if (requestManager == null) {
+      // TODO(b/27524013): Factor out this Glide.get() call.
+      Glide glide = Glide.get(context);
+        //factory可以通过注解指定，没有的话就是用默认的factory
+      requestManager =
+          factory.build(
+              glide, current.getGlideLifecycle(), current.getRequestManagerTreeNode(), context);
+      current.setRequestManager(requestManager);
+    }
+    return requestManager;
+  }
+```
+
+**构建RequestManager**
+
+```java
+private static final RequestManagerFactory DEFAULT_FACTORY = new RequestManagerFactory() {
+    @NonNull
+    @Override
+    public RequestManager build(@NonNull Glide glide, @NonNull Lifecycle lifecycle,
+        @NonNull RequestManagerTreeNode requestManagerTreeNode, @NonNull Context context) {
+      return new RequestManager(glide, lifecycle, requestManagerTreeNode, context);
+    }
+  };
+
+```
+
+RequestManager构造方法内部通过
+
+```
+lifecycle.addListener(this);
+```
+
+实现了对SupportRequestManagerFragment的生命周期的监听。从而实现对当前页面（Activity/Fragment的加载生命周期管理）
+
+### 小结：
+
+1. Glide#with方法传递参数的优先级是  fragment > activity >  View > application   其中activity和view应该是比较有争议的。如果View直接在activity中，肯定是直接传递activity好，如果view在fragment  glide内部会遍历所有fragment，然后查找到所对应的fragment。这个过程会经历多次循环，相对比较耗时。
+2. Requestmanager通过监听SupportRequestManagerFragment的生命周期实现对图片加载生命周期进行管理。
+
+## Glide输入、输出变化
+
+
 
