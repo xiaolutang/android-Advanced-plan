@@ -1,6 +1,6 @@
 # Glide 请求管理（RequestManager）
 
-用尽可能少的代码讲清楚对应的原理。
+
 
 # Glide生命周期
 
@@ -297,16 +297,158 @@ public boolean clearRemoveAndRecycle(@Nullable Request request) {
 
 # Glide真的不会发生内存泄漏吗？
 
+前面我们梳理了Glide的生命周期，知道在生命相关的activity/Fragment销毁的时候会暂停和回收相关的请求，并且切断网络请求回调的引用。那么Glide是不是真的能够完全避免内存内泄漏呢？
 
+这个直接给出我的结论：**正常情况下使用Glide不会造成内Activity、Fragment、View内存泄漏。但是如果Glide使用不当是可能造成内存泄漏的。比如在Fragment使用Glide#with传递activity对象。**原因是Fragment结束的时候，Activity几倍RequestManager并没有接收到相应的生命周期方法。
 
-# 请求配置项
+## 实验证明：
 
-Glide到底会不会发生内存泄漏
+改造我们在[Glide数据输入输出](https://juejin.cn/post/7036389645168410655#heading-11)编写的加载音频封面的ModelLoader,当遇到特定该音频的时候线程休眠300秒
+
+```java
+@Override
+public void loadData(@NonNull Priority priority, @NonNull DataCallback<? super ByteBuffer> callback) {
+    try {
+        Log.d(TAG,"loadData assetPath "+assetPath);
+        AssetFileDescriptor fileDescriptor = assetManager.openFd(assetPath);
+        //特定路径 休眠300s  模拟网络加载缓慢
+        if(assetPath.contains("DuiMianDeNvHaiKanGuoLai--RenXianQi.mp3")){
+            SystemClock.sleep(10*30*1000);//休眠300s
+        }
+        mediaMetadataRetriever.setDataSource(fileDescriptor.getFileDescriptor(),fileDescriptor.getStartOffset(),fileDescriptor.getDeclaredLength());
+        byte[] bytes = mediaMetadataRetriever.getEmbeddedPicture();
+        if(bytes == null){
+            callback.onLoadFailed(new FileNotFoundException("the file not pic"));
+            return;
+        }
+        ByteBuffer buf = ByteBuffer.wrap(bytes);
+        Log.d(TAG,"loadData assetPath "+assetPath +" success");
+        callback.onDataReady(buf);
+    } catch (IOException e) {
+        e.printStackTrace();
+        callback.onLoadFailed(e);
+    }
+}
+```
+
+在Activity中添加一个Fragment，当页面创建成功后，使用Glide#with传递activity/context对象，并在activity中移除该Fragment。
+
+将fragment的根View与fragment强制关联。方便利用LeakCanary进行内存泄漏检测。
+
+```java
+public static class MyTestFragment extends Fragment {
+    ImageView imageView;
+    @Nullable
+    @Override
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+        View root = inflater.inflate(R.layout.fragment_glide_source_test,container,false);
+        imageView = root.findViewById(R.id.imageView);
+        //强制保留引用关系  方便进行检测
+        root.setTag(this);
+        Log.d(TAG,"onCreateView finish");
+        return root;
+    }
+
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+        Glide.with(getActivity()).load(Uri.parse("file:///android_asset/DuiMianDeNvHaiKanGuoLai--RenXianQi.mp3")).diskCacheStrategy(DiskCacheStrategy.NONE).into(imageView);
+        Log.d(TAG,"onActivityCreated load ");
+        imageView.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG,"onActivityCreated remove ");
+                getActivity().getSupportFragmentManager().beginTransaction().remove(MyTestFragment.this).commit();
+            }
+        },300);
+
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+    }
+}
+```
+
+实验结果：
+
+![](Glide内存泄漏.jpg)
+
+可以看这里因为Fragment被View持有导致了Fragment内存泄漏。这个也就反应了当Glide使用不当，会导致View的内存泄漏。
+
+# 小结Glide使用注意事项
+
+Glide#with方法在参数使用优先级
+
+fragment > view > activity > application  
+
+其中view和activity  在明确知道当前使用的页面是activity优先传递activity  因为view会通过多次循环遍历查找fragment、activity。正确的使用Glide可以避免因为Glide造成内存泄漏。
+
+Glide RequestOptions 可以分为三个级别：
+
+1. 应用级 可以进行全局配置
+2. 页面级别  activty/fragment  可以为每一个特殊的页面进行定制化处理，作用于RequestManager
+3. 单个请求  作用于RequestBuilder  为每一个请求构建请求配置项
 
 # Glide如何保证图片的加载不会出现错乱
 
-Glide同一个ImageView两次请求不同的url有可能发生图片错乱吗？会验证下。到底有没有经过设置target来判断是否合适？来解决错乱问题。
+ViewTarget#setRequest会调用View的setTag 将request请求对象放在View中。
 
+```java
+@Override
+public void setRequest(@Nullable Request request) {
+  setTag(request);
+}
 
+private void setTag(@Nullable Object tag) {
+    if (tagId == null) {
+      isTagUsedAtLeastOnce = true;
+      view.setTag(tag);
+    } else {
+      view.setTag(tagId, tag);
+    }
+  }
+```
 
-什么时候共用target？什么时候共用request?  默认情况下既不会共用target 也不会共用一个request
+回收原来的request
+
+```java
+private <Y extends Target<TranscodeType>> Y into(
+    @NonNull Y target,
+    @Nullable RequestListener<TranscodeType> targetListener,
+    BaseRequestOptions<?> options,
+    Executor callbackExecutor) {
+  Preconditions.checkNotNull(target);
+  if (!isModelSet) {
+    throw new IllegalArgumentException("You must call #load() before calling #into()");
+  }
+
+  Request request = buildRequest(target, targetListener, options, callbackExecutor);
+
+  Request previous = target.getRequest();
+    //如果与前一个请求一致，复用原来的
+  if (request.isEquivalentTo(previous)
+      && !isSkipMemoryCacheWithCompletePreviousRequest(options, previous)) {
+    request.recycle();
+    if (!Preconditions.checkNotNull(previous).isRunning()) {
+      // Use the previous request rather than the new one to allow for optimizations like skipping
+      // setting placeholders, tracking and un-tracking Targets, and obtaining View dimensions
+      // that are done in the individual Request.
+      previous.begin();
+    }
+    return target;
+  }
+//清除上一个请求  获取对应的request 是通过getTag完成的。
+  requestManager.clear(target);
+  target.setRequest(request);
+  requestManager.track(target, request);
+
+  return target;
+}
+```
