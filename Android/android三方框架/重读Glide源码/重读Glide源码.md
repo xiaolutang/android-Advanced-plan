@@ -30,7 +30,7 @@ Glide#with有多个重载方法，最终会变成两种类型，Activity和Fragm
 
 Glide#with内部会先调用getRetriever获取一个RequestManagerRetriever在由RequestManagerRetriever#get获取一个RequestManager，RequestManagerRetriever的主要工作职责是从activity或fragment获取对应的Requestmanager。RequestManagerRetriever有多个get重载
 
-![image-20211123090528893](\RequestManagerRetriever#get重载.png)
+![image-20211123090528893](RequestManagerRetriever#get重载.png)
 
 以传递Fragment为例：RequestManager的获取分为两个流程
 
