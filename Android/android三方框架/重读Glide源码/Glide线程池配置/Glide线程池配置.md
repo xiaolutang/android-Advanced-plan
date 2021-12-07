@@ -2,8 +2,6 @@ Glide线程池配置
 
 Glide如何实现优先级加载
 
-线程池该如何配置
-
 
 
 Glide用来进行图片加载，我们知道当页面暂停的时候，glide可以根据页面的生命周期，来暂停当前页面的请求，但是如果当前页面通过滑动加载大量图片，那么Glide是怎么进行图片加载的呢？是先调用的加载在前还是后调用的加载在前面呢？如果某个页面的部分图片需要优先被加载，那么Glide又该如何处理呢？
@@ -111,4 +109,115 @@ public static GlideExecutor newDiskCacheExecutor(
 ```
 
 在默认创建的时候，调用的是无参数的那个，threadCount 值为1  即DiskCacheExecutor是一个核心线程数为1，没有非核心线程的线程池，所有任务在线程池中串行执行，Runnable的存储对象是PriorityBlockingQueue。
+
+## SourceExecutor的配置过程
+
+```java
+public static GlideExecutor newSourceExecutor() {
+  return newSourceExecutor(
+      calculateBestThreadCount(),
+      DEFAULT_SOURCE_EXECUTOR_NAME,
+      UncaughtThrowableStrategy.DEFAULT);
+}
+
+ public static GlideExecutor newSourceExecutor(
+      int threadCount, String name, UncaughtThrowableStrategy uncaughtThrowableStrategy) {
+    return new GlideExecutor(
+        new ThreadPoolExecutor(
+            threadCount /* corePoolSize */,
+            threadCount /* maximumPoolSize */,
+            0 /* keepAliveTime */,
+            TimeUnit.MILLISECONDS,
+            new PriorityBlockingQueue<Runnable>(),
+            new DefaultThreadFactory(name, uncaughtThrowableStrategy, false)));
+  }
+```
+
+可以看到SourceExecutor的构建过程和基本一致，不同的地方在于核心线程的数量是通过calculateBestThreadCount来动态计算的。
+
+```java
+if (bestThreadCount == 0) {
+    //如果cpu核心数超过4则核心线程数为4  如果Cpu核心数小于4那么使用Cpu核心数作为核心线程数量
+  bestThreadCount =
+      Math.min(MAXIMUM_AUTOMATIC_THREAD_COUNT, RuntimeCompat.availableProcessors());
+}
+return bestThreadCount;
+```
+
+## UnlimitedSourceExecutor无限制的线程池
+
+```java
+public static GlideExecutor newUnlimitedSourceExecutor() {
+  return new GlideExecutor(new ThreadPoolExecutor(
+      0,
+      Integer.MAX_VALUE,
+      KEEP_ALIVE_TIME_MS,
+      TimeUnit.MILLISECONDS,
+      new SynchronousQueue<Runnable>(),
+      new DefaultThreadFactory(
+          SOURCE_UNLIMITED_EXECUTOR_NAME,
+          UncaughtThrowableStrategy.DEFAULT,
+          false)));
+}
+```
+
+UnlimitedSourceExecutor没有核心线程，非核心线程数量无限大。
+
+## AnimationExecutor
+
+```java
+public static GlideExecutor newAnimationExecutor() {
+  int bestThreadCount = calculateBestThreadCount();
+  int maximumPoolSize = bestThreadCount >= 4 ? 2 : 1;
+  return newAnimationExecutor(maximumPoolSize, UncaughtThrowableStrategy.DEFAULT);
+}
+
+public static GlideExecutor newAnimationExecutor(
+      int threadCount, UncaughtThrowableStrategy uncaughtThrowableStrategy) {
+     return new GlideExecutor(
+        new ThreadPoolExecutor(
+            0 /* corePoolSize */,
+            threadCount,
+            KEEP_ALIVE_TIME_MS,
+            TimeUnit.MILLISECONDS,
+            new PriorityBlockingQueue<Runnable>(),
+            new DefaultThreadFactory(
+                ANIMATION_EXECUTOR_NAME,
+                uncaughtThrowableStrategy,
+                true)));
+  }
+```
+
+AnimationExecutor没有核心线程，非核心线程数量根据Cpu核心数来决定，当Cpu核心数大于等4时 非核心线程数为2，否则为1。
+
+# Glide线程池总结
+
+DiskCacheExecutor和SourceExecutor 采用固定核心线程数固定，适用于处理CPU密集型的任务，但是没有非核心线程。确保CPU在长期被工作线程使用的情况下，尽可能的少的分配线程，即适用执行长期的任务。
+
+UnlimitedSourceExecutor采用无核心线程，非核心线程无限大适用于并发执行大量短期的小任务。在空闲的时候消耗资源非常少。
+
+AnimationExecutor没有核心线程，非核心线程有限，同UnlimitedSourceExecutor的区别就是核心线程数量和工作队列不一致。第一次看到这么用。
+
+# Glide如何实现加载优先级
+
+除了UnlimitedSourceExecutor其余的都是使用的PriorityBlockingQueue。PriorityBlockingQueue是一个具有优先级的无界阻塞队列。也就是说优先级越高越先执行。
+
+我们知道图片的加载是在线程池中执行的DecodeJob，DecodeJob实现了Runnable和Comparable接口。当DecodeJob被提交到线程池的时候，如果需要加入工作队列会通过compareTo比较Decodejob优先级
+
+```java
+@Override
+public int compareTo(@NonNull DecodeJob<?> other) {
+  //先比较 Priority  
+  int result = getPriority() - other.getPriority();
+  //如果 Priority优先级一致 ，比较order  order是一个自增的int 每一次初始化DecodeJob 都会执行++ 因此后初始化的DecodeJob比先初始化的优先级高。
+  if (result == 0) {
+    result = order - other.order;
+  }
+  return result;
+}
+```
+
+
+
+
 
