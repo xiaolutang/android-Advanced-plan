@@ -79,7 +79,7 @@ https://github.com/xiaolutang/androidTool/blob/master/app/src/main/java/com/exam
 
 ## startService的过程
 
-我们知道四大组件的很多工作都最终执行的位置都是在ContextImpl来万层，启动服务也不例外。Activity#startService()最终会调用ContextImpl#startService()
+我们知道四大组件的很多工作都最终执行的位置都是在ContextImpl来完成，启动服务也不例外。Activity#startService()最终会调用ContextImpl#startService()
 
 ```java
  @Override
@@ -420,7 +420,7 @@ private boolean bindServiceCommon(Intent service, ServiceConnection conn, int fl
         ...
         if (mPackageInfo != null) {
             if (executor != null) {
-                //getOuterContext() 意味着获取的是activiy、service、或者application  特别的当activity活这个service结束时，可以对绑定的服务进行清理，从系统级别防止内存泄漏
+                //getOuterContext() 意味着获取的是activiy、service、或者application  特别的当activity或这个service结束时，可以对绑定的服务进行清理，从系统级别防止内存泄漏
                 sd = mPackageInfo.getServiceDispatcher(conn, getOuterContext(), executor, flags);
             } else {
                 sd = mPackageInfo.getServiceDispatcher(conn, getOuterContext(), handler, flags);
