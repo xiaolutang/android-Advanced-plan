@@ -30,3 +30,66 @@ Glide的加载过程大致如下，Glide#with获取与生命周期绑定的Reque
 
 Glide通过给Fragment/Activity插入一个不可见的Fragment,通过监听该Fragment的生命周期。来实现对应的请求管理。但是需要注意的是，如果在Fragment中使用Activity，在图片的请求过程中Fragment被销毁，但是请求并没有结束，会造成内存泄漏。
 
+# Glide RequestOptions请求参数配置
+
+GlideReuqestOptions参数配置分为三级，第一级作用于Glide ,在RequestManger的构造方法通过GlideContext获取 进行配置处理。第二即作用于RequestManger如果我们要针对某个
+
+RequestManger进行配置处理。那么需要使用RequestManger#applyDefaultRequestOptions来对默认的配置进行更新。第三级作用于RequestBuilder，通过它的apply方法为每一个请求的配置进行更新。
+
+# Glide缓存管理
+
+Glide缓存分为，内存缓存，文件缓存，网络缓存。其中内存缓存又分为活动资源缓存，Lru缓存，文件缓存分为资源缓存和原始数据缓存。
+
+**内存缓存**
+
+活动资源缓存将每一个正在使用的图片加入活动资源缓存，每增加一个使用对象引用计数器加一，否则减一。
+
+Lru缓存是按照最近最少使用的原则来对图片内存缓存进行维护，当Lru缓存满了的时候，优先移除访问时间最久的那个。
+
+活动资源缓存以较小的代价，维护当前在内存中使用的图片资源，减轻Lru缓存的压力，提高缓存效率。
+
+**文件缓存**
+
+资源文件缓存是根据当前所需要的资源类型，图片大小等特定信息进行的缓存，当从资源缓存中获取数据的时候，不需要进行解码操作，获取的数据可以直接进行使用。
+
+原始数据是根据网络加载的数据，直接进行缓存。使用的时候还需要重新进行解码，转换的流程。
+
+# 内存管理
+
+Glide的内存管理有两块，一、OOM的防治；二、内存抖动
+
+## OOM
+
+图片加载非常重要的一点就是OOM的防治,
+
+### 图片的加载
+
+Glide针对较大的图片，会根据当前ui的显示大小与实际大小的比例，进行采样计算从而减小图片在内存中的占用。一般而言
+
+图片的大小  =  图片宽 X  图片高 X 每个像素占用的字节数。
+
+对于资源文件夹下的图片：
+
+图片的高 = 原图高 X (设备的 dpi / 目录对应的 dpi )
+
+图片的宽 = 原图宽 X (设备的 dpi / 目录对应的 dpi )
+
+### onlowMemory/onTrimMemory
+
+Glide通过实现ComponentCallbacks2并将其注册进Applition,  当内存过低的时候会调用onlowMemory，在onlowMemory 中Glide会将一些缓存的内存进行清除，方便进行内存回收，当onTrimMemory被调用的时候，如果level是系统资源紧张，Glide会将Lru缓存和BitMap重用池相关的内容进行回收。如果是其他的原因调用onTrimMemory，Glide会将缓存的内容减小到配置缓存最大内容的1/2。
+
+### 借助弱引用
+
+
+
+## 内存抖动的处理.
+
+Glide通过重用池技术，将一些常用的对应进行池话，比如图片加载相关的EngineJob DecodeJob等一下需要大量重复使用创建的对象，通过对象重用池进行对象重用。
+
+BitmapPool对Bitmap进行对象重用。在对图片进行解码的的时候通过设置BitmapFactory.Options#inBitmap来达到内存重用的目的。
+
+# 列表页图片加载数据错乱
+
+# Glide中的线程&线程池
+
+# 假如设计一款图片加载框架，我们需要考虑什么？
