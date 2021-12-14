@@ -56,11 +56,11 @@ Lru缓存是按照最近最少使用的原则来对图片内存缓存进行维�
 
 # 内存管理
 
-Glide的内存管理有两块，一、OOM的防治；二、内存抖动
+Glide的内存管理有两块，一、OOM的防治；二、内存抖动。
 
 ## OOM
 
-图片加载非常重要的一点就是OOM的防治,
+图片加载非常重要的一点就是OOM的防治,Glide通过图片采样，弱引用、生命周期绑定等方式，减小加载到内存的的图片大小，及时清除不需要在使用对象的引用，从而减小OOM的概率。
 
 ### 图片的加载
 
@@ -80,7 +80,7 @@ Glide通过实现ComponentCallbacks2并将其注册进Applition,  当内存过�
 
 ### 借助弱引用
 
-
+Glide通过RequestManager管理图片请求，而RequestManager内部是通过RequestTracker和TargetTracker来完成的。他们持有的方式都是弱引用。
 
 ## 内存抖动的处理.
 
@@ -88,8 +88,43 @@ Glide通过重用池技术，将一些常用的对应进行池话，比如图片
 
 BitmapPool对Bitmap进行对象重用。在对图片进行解码的的时候通过设置BitmapFactory.Options#inBitmap来达到内存重用的目的。
 
+> 在 `Android 3.0（API 级别 11）`开始，系统引入了 `BitmapFactory.Options.inBitmap` 字段。如果设置了此选项，那么采用 `Options` 对象的解码方法会在生成目标 `Bitmap` 时尝试复用 `inBitmap`，这意味着 `inBitmap` 的内存得到了重复使用，从而提高了性能，同时移除了内存分配和取消分配。不过 `inBitmap` 的使用方式存在某些限制，在 `Android 4.4（API 级别 19）`之前系统仅支持复用大小相同的位图，4.4 之后只要 `inBitmap` 的大小比目标 `Bitmap` 大即可
+
+
+
 # 列表页图片加载数据错乱
 
+由于RecyclerView、ListView的View复用机制，可能出现第一个item的图片显示在第10个上，这个明显是错误的。Glide通过给Target#setRequest，将Target与Request关联。针对View类型的Target，setRequest的实质是给View设置tag，通过tag保存request,当下一个持有相同View的Target到来的时候，也可以取出原来的request,并将其取消。但是针对非View类型的target,如果要使用这个特性，我们需要提供原来的在使用的target，而不是像View一样重新创建一个新的对象。
+
 # Glide中的线程&线程池
+
+关于Glide中的线程线程池，准备说两个方面
+
+- 图片加载回调
+- Glide的线程池配置
+
+## 图片加载回调
+
+Glide有两种图片加载方式into和submit  通过into加载的图片会通过Executors#MAIN_THREAD_EXECUTOR回调到主线程。
+
+而通过submit的进行回调的会通过Executors#DIRECT_EXECUTOR在当前线程进行处理。
+
+## Glide线程池配置
+
+线程作为cpu调度的最小单元，每一次的创建和回收都会有较大的消耗，通过使用线程池可以
+
+- 降低资源消耗：通过重复利用已创建的线程降低线程创建和销毁造成的消耗。
+- 提高响应速度：当任务到达时，可以不需要等待线程创建就能立即执行。
+- 提高线程的可管理性：线程是稀缺资源，如果无限制的创建，不仅会消耗系统资源，还会降低系统的稳定性，使用线程池可以进行统一的分配，监控和调优。
+- 有效的控制并发数
+
+Glide中提供了四种线程池配置。
+
+- DiskCacheExecutor  该线程池只有一个核心线程，没有非核心线程，所有任务在线程池中串行执行。在Glide中常用与从文件中加载图片。
+- SourceExecutor  该线程也只有核心线程没有非核心线程，与DiskCacheExecutor 的不同之处在于核心线程的数量根据CPU的核数来决定。如果cpu核心数超过4则核心线程数为4  如果Cpu核心数小于4那么使用Cpu核心数作为核心线程数量。在Glide中长用来从网络中加载图片。
+- UnlimitedSourceExecutor 没有核心线程，非核心线程数量无限大。这种类型的线程池常用于执行量大而快速结束的任务。在所有任务结束。在所有任务结束后几乎不消耗资源。
+- AnimationExecutor  没有核心线程，非核心线程数量根据Cpu核心数来决定，当Cpu核心数大于等4时 非核心线程数为2，否则为1。
+
+
 
 # 假如设计一款图片加载框架，我们需要考虑什么？
