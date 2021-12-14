@@ -125,6 +125,9 @@ Glide中提供了四种线程池配置。
 - UnlimitedSourceExecutor 没有核心线程，非核心线程数量无限大。这种类型的线程池常用于执行量大而快速结束的任务。在所有任务结束。在所有任务结束后几乎不消耗资源。
 - AnimationExecutor  没有核心线程，非核心线程数量根据Cpu核心数来决定，当Cpu核心数大于等4时 非核心线程数为2，否则为1。
 
+# Glide如何加载不同类型的资源
 
+Glide通过RequestManager#as方法确定当前请求Target最终需要的资源类型。通过load方法确定需要加载的model资源类型，资源的加载过程经历ModelLoader的model加载匹配，解码器解码，转码器的转换，这几个过程构建成一个LoadPath 。而每一个LoadPath 又包含很多的DecodePath，DecodePath的主要作用是将ModelLoader加载出来的数据进行解码，转换。
 
-# 假如设计一款图片加载框架，我们需要考虑什么？
+Glide会遍历所有可能解析出对应数据的LoadPath 直到数据正真解析成功。
+
