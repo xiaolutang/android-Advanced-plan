@@ -5,7 +5,7 @@
 1. retrofit 的使用
 2. java 动态代理
 3. retrofit的工作流程
-4. 我说理解到的retrofit设计
+4. 我所理解到的retrofit设计
 
 # retrofit 的使用
 
