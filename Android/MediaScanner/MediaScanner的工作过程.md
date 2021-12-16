@@ -96,13 +96,13 @@ public static void abortScan(Context context, String volume, String path, int st
 }
 ```
 
-# MediaScannerService的工作
+## MediaScannerService的工作
 
 MediaScannerService继承自Service实现了Runnable接口，同时内部封装了Hander Thread线程来进行文件扫描。大部分情况下MediaScannerService通过startService进行工作，同时也支持绑定服务。
 
 在MediaScannerService#onStartCommand主要的工作是，解析startService传递过来的参数，如果是结束扫描那么就终止对应MediaScanner的扫描过程。否则通过Handler转发到子线程发起扫描工作。
 
-## 终止扫描过程
+### 终止扫描过程
 
 ```java
 public static void abortScan(Context context, MediaScanner scanner, String path) {
@@ -116,7 +116,7 @@ public static void abortScan(Context context, MediaScanner scanner, String path)
 }
 ```
 
-## 扫描的过程
+### 扫描的过程
 
 扫描有许多的逻辑判断，可以扫描指定路径，也可以扫描内部存储。这里我们着重与关注外部存储的扫描过程。
 
@@ -175,7 +175,7 @@ private void scan(String[] directories, String volumeName) {
 }
 ```
 
-# MediaScanner的扫描过程
+## MediaScanner的扫描过程
 
 MediaScanner的扫描工作在MediaScanner#scanDirectories发起，scanDirectories主要有三个工作，
 
@@ -183,7 +183,7 @@ MediaScanner的扫描工作在MediaScanner#scanDirectories发起，scanDirectori
 2. 在scanDirectories会遍历所有待扫码的文件夹路径，然后通过jni调用processDirectory通知native层对当前的文件夹进行扫描。
 3. 调用postscan处理扫描后续的工作
 
-## C++层深度优先遍历文件夹
+### C++层深度优先遍历文件夹
 
 文件夹扫描是通过processDirectory通知native来完成，它的执行代码位于TsMediaScanner.cpp的TsMediaScanner#processDirectory而processDirectory内部又会通过doProcessDirectory来完成扫描过程。
 
@@ -406,7 +406,7 @@ public void scanFile(String path, long lastModified, long fileSize,
 }
 ```
 
-## doScanFile的过程
+### doScanFile的过程
 
 ```java
 public Uri doScanFile(String path, String mimeType, long lastModified,
@@ -515,13 +515,13 @@ public Uri doScanFile(String path, String mimeType, long lastModified,
         }
 ```
 
-## 音视频文件的解析
+### 音视频文件的解析
 
 音视频的解析调用的是一个JNI方法processFile，而它的内部经过层层调用会来到TsStagefrightMediaScanner#processFile  而C++层的processFile会调用processFileInternal来解析音视频文件。
 
 在processFileInternal会通过StagefrightMetadataRetriever来解析相关的音视频信息。但是需要注意的是这里并没有音频专辑图片和视频抽帧图。
 
-## 图片文件的解析
+### 图片文件的解析
 
 图片的解析相对而言比较简单，就是在不获取实际图片的情况下获取图片的宽高信息
 
@@ -554,7 +554,7 @@ private boolean processImageFile(String path) {
 
 # 思考如何提升扫描效率？
 
-1. 以u盘为单位，对数据进行存储，每次开始扫描对比值需要对比当前U盘的数据（从目前的代码流程来看，它应该是所有的数据存在同一个数据库的表，在多看看代码）。
+1. 以u盘为单位，对数据进行存储，每次开始扫描对比值需要对比当前U盘的数据（从目前的代码流程来看，它应该是所有的数据存在同一个数据库的表，在多看看代码）。**如果拔出U盘清除数据库，应该就没有这个事了**
 2. 多线程扫描，每一个u盘的扫描还是通过HandlerThread来进行分发，但是在文件夹的扫描过程中是否可以多个文件夹并行处理？代码难度比较高。会涉及到C++层和java层的代码配合更改。
 
 
@@ -563,3 +563,19 @@ private boolean processImageFile(String path) {
 
 1. HMI保存lastMode信息，hmi直接尝试播放 lastmode 
 2. MediaProvider保存LastMode信息  在扫描开始的时候直接先匹配判断LastMode 是否被更改，不存在则删除lastMode，有没有可能存在hmi查询了lastMode 但是lastMode信心还没有对比完成？需不需要在同步完成lastMode信息后发送消息？还是说使用同步机制来保证查询到的lastmode是可用的。
+
+# 问题
+
+在拔出U盘删除扫描入库的数据是否合理？删除的时候LastMode信息怎么来进行维护？解码出来的音频图片是否需要删除？
+
+应用层插入数据库的数据如何维护？是否会随着使用时间一直增加，谁来删除不在使用的数据？MediaProvider根据什么规则来删除
+
+U盘拔出的时候删除数据库表，历史记录如何和原来表中的数据对应？通过path?至少上一个U盘的数据应该做对应的保留吧？
+
+
+
+文件夹查询？如何定义Uri
+
+- 查询某个文件夹下的子文件夹
+- 查询包含音频/视频/图片 的文件夹
+- 查询某个文件夹下的文件
