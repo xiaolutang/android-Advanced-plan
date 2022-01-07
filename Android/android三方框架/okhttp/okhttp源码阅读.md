@@ -58,5 +58,5 @@ okHttpClient.newCall(request).enqueue(new Callback() {
 Response response = okHttpClient.newCall(request).execute();
 ```
 
-
+OkhttpClient和Request独立变化，RealCall通过桥接的方式将OkhttpClient和Request关联。
 
